@@ -3170,91 +3170,95 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
       OldCode:=Code;
       OldCodeGeneratorContext:=CodeGeneratorContext;
       Code:=TBESENCode(TBESENASTNodeFunctionBody(ToVisit).Code);
-      CodeGeneratorContext:=TBESENCodeGeneratorContext.Create(Instance);
-      CodeGeneratorContext.Code:=Code;
-      OldDoHasLocalDelete:=DoHasLocalDelete;
-      OldDoIsComplexFunction:=DoIsComplexFunction;
-      OldDoHasMaybeDirectEval:=DoHasMaybeDirectEval;
-      OldOptimizeLocals:=OptimizeLocals;
-      OldHasFunctions:=HasFunctions;
-      OldDoHoldLocalVariablesInRegisters:=DoHoldLocalVariablesInRegisters;
-      HasFunctions:=false;
-      OptimizeLocals:=TBESENASTNodeFunctionBody(ToVisit).EnableLocalsOptimization;
-      try
-       DoHasLocalDelete:=false;
-       DoIsComplexFunction:=not TBESENASTNodeFunctionBody(ToVisit).IsFunction;
-       DoHasMaybeDirectEval:=false;
-       HasFunctions:=length(TBESENASTNodeFunctionBody(ToVisit).Functions)>0;
-       DoHoldLocalVariablesInRegisters:=TBESENASTNodeFunctionBody(ToVisit).IsFunction;
-       for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Statements)-1 do begin
-        CheckNodeForFeatures(TBESENASTNodeFunctionBody(ToVisit).Statements[Counter],DoHasLocalDelete,DoIsComplexFunction,DoHasMaybeDirectEval,HasFunctions,DoHoldLocalVariablesInRegisters);
-       end;
-       DoHoldLocalVariablesInRegisters:=DoHoldLocalVariablesInRegisters and (OptimizeLocals and not (DoHasLocalDelete or DoIsComplexFunction or DoHasMaybeDirectEval or HasFunctions));
-       if TBESENASTNodeFunctionBody(ToVisit).IsStrict then begin
-        Code.GenOp(bopSTRICT,1);
-       end else begin
-        Code.GenOp(bopSTRICT,0);
-       end;
-       for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Functions)-1 do begin
-        r1:=-1;
-        Visit(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter],r1,false);
-        CodeGeneratorContext.DeallocateRegister(r1);
-        if assigned(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]) and (TBESENASTNodeFunctionBody(ToVisit).Functions[Counter] is TBESENASTNodeFunctionDeclaration) then begin
-         if assigned(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal) and assigned(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name) then begin
-          CodeGeneratorContext.VariableSetScope(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name.Name,true,false,-1);
-          CodeGeneratorContext.VariableSetType(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name.Name,bvtUNDEFINED);
-          CodeGeneratorContext.VariableSetFlags(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name.Name,false,false);
-         end;
+      if Code.ByteCodeLen>0 then
+       Code:=OldCode // avoid generating bytecode multiple times
+      else begin
+       CodeGeneratorContext:=TBESENCodeGeneratorContext.Create(Instance);
+       CodeGeneratorContext.Code:=Code;
+       OldDoHasLocalDelete:=DoHasLocalDelete;
+       OldDoIsComplexFunction:=DoIsComplexFunction;
+       OldDoHasMaybeDirectEval:=DoHasMaybeDirectEval;
+       OldOptimizeLocals:=OptimizeLocals;
+       OldHasFunctions:=HasFunctions;
+       OldDoHoldLocalVariablesInRegisters:=DoHoldLocalVariablesInRegisters;
+       HasFunctions:=false;
+       OptimizeLocals:=TBESENASTNodeFunctionBody(ToVisit).EnableLocalsOptimization;
+       try
+        DoHasLocalDelete:=false;
+        DoIsComplexFunction:=not TBESENASTNodeFunctionBody(ToVisit).IsFunction;
+        DoHasMaybeDirectEval:=false;
+        HasFunctions:=length(TBESENASTNodeFunctionBody(ToVisit).Functions)>0;
+        DoHoldLocalVariablesInRegisters:=TBESENASTNodeFunctionBody(ToVisit).IsFunction;
+        for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Statements)-1 do begin
+         CheckNodeForFeatures(TBESENASTNodeFunctionBody(ToVisit).Statements[Counter],DoHasLocalDelete,DoIsComplexFunction,DoHasMaybeDirectEval,HasFunctions,DoHoldLocalVariablesInRegisters);
         end;
-       end;
-       for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Variables)-1 do begin
-        CodeGeneratorContext.VariableSetScope(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,true,TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].IsParameter,TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].ParameterIndex);
-        CodeGeneratorContext.VariableSetType(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,bvtUNDEFINED);
-        CodeGeneratorContext.VariableSetFlags(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,false,not DoHasLocalDelete);
-        if DoHoldLocalVariablesInRegisters and not TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].IsParameter then begin
-         r1:=CodeGeneratorContext.AllocateRegister;
-         CodeGeneratorContext.Registers[r1].Variable:=Counter;
-         CodeGeneratorContext.VariableSetRegister(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,r1);
+        DoHoldLocalVariablesInRegisters:=DoHoldLocalVariablesInRegisters and (OptimizeLocals and not (DoHasLocalDelete or DoIsComplexFunction or DoHasMaybeDirectEval or HasFunctions));
+        if TBESENASTNodeFunctionBody(ToVisit).IsStrict then begin
+         Code.GenOp(bopSTRICT,1);
         end else begin
-         CodeGeneratorContext.VariableSetRegister(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,-1);
+         Code.GenOp(bopSTRICT,0);
         end;
-       end;
-       for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Statements)-1 do begin
-        r1:=-1;
-        Visit(TBESENASTNodeFunctionBody(ToVisit).Statements[Counter],r1,false);
-        CodeGeneratorContext.DeallocateRegister(r1);
-       end;
-       if DoHoldLocalVariablesInRegisters then begin
-        for Counter:=0 to length(CodeGeneratorContext.Registers)-1 do begin
-         if CodeGeneratorContext.Registers[Counter].Variable>=0 then begin
-          CodeGeneratorContext.Registers[Counter].Variable:=-1;
-          r1:=Counter;
-          CodeGeneratorContext.DeallocateRegister(r1);
+        for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Functions)-1 do begin
+         r1:=-1;
+         Visit(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter],r1,false);
+         CodeGeneratorContext.DeallocateRegister(r1);
+         if assigned(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]) and (TBESENASTNodeFunctionBody(ToVisit).Functions[Counter] is TBESENASTNodeFunctionDeclaration) then begin
+          if assigned(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal) and assigned(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name) then begin
+           CodeGeneratorContext.VariableSetScope(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name.Name,true,false,-1);
+           CodeGeneratorContext.VariableSetType(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name.Name,bvtUNDEFINED);
+           CodeGeneratorContext.VariableSetFlags(TBESENASTNodeFunctionDeclaration(TBESENASTNodeFunctionBody(ToVisit).Functions[Counter]).Container.Literal.Name.Name,false,false);
+          end;
          end;
         end;
+        for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Variables)-1 do begin
+         CodeGeneratorContext.VariableSetScope(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,true,TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].IsParameter,TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].ParameterIndex);
+         CodeGeneratorContext.VariableSetType(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,bvtUNDEFINED);
+         CodeGeneratorContext.VariableSetFlags(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,false,not DoHasLocalDelete);
+         if DoHoldLocalVariablesInRegisters and not TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].IsParameter then begin
+          r1:=CodeGeneratorContext.AllocateRegister;
+          CodeGeneratorContext.Registers[r1].Variable:=Counter;
+          CodeGeneratorContext.VariableSetRegister(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,r1);
+         end else begin
+          CodeGeneratorContext.VariableSetRegister(TBESENASTNodeFunctionBody(ToVisit).Variables[Counter].Name,-1);
+         end;
+        end;
+        for Counter:=0 to length(TBESENASTNodeFunctionBody(ToVisit).Statements)-1 do begin
+         r1:=-1;
+         Visit(TBESENASTNodeFunctionBody(ToVisit).Statements[Counter],r1,false);
+         CodeGeneratorContext.DeallocateRegister(r1);
+        end;
+        if DoHoldLocalVariablesInRegisters then begin
+         for Counter:=0 to length(CodeGeneratorContext.Registers)-1 do begin
+          if CodeGeneratorContext.Registers[Counter].Variable>=0 then begin
+           CodeGeneratorContext.Registers[Counter].Variable:=-1;
+           r1:=Counter;
+           CodeGeneratorContext.DeallocateRegister(r1);
+          end;
+         end;
+        end;
+        if TBESENASTNodeFunctionBody(ToVisit).IsFunction then begin
+         Code.GenOp(bopSETCUNDEF);
+        end;
+        Code.GenOp(bopEND,0);
+        Code.HasLocalDelete:=DoHasLocalDelete;
+        Code.IsComplexFunction:=DoIsComplexFunction;
+        Code.HasMaybeDirectEval:=DoHasMaybeDirectEval;
+        Code.HoldLocalVariablesInRegisters:=DoHoldLocalVariablesInRegisters;
+        Code.MaxBlock:=CodeGeneratorContext.MaxBlockDepth;
+        Code.MaxLoop:=CodeGeneratorContext.MaxLoopDepth;
+        Code.MaxParamArgs:=CodeGeneratorContext.MaxParamArgs;
+        Code.MaxRegisters:=CodeGeneratorContext.MaxRegisters;
+       finally
+        BESENFreeAndNil(CodeGeneratorContext);
+        Code:=OldCode;
+        CodeGeneratorContext:=OldCodeGeneratorContext;
+        DoHasLocalDelete:=OldDoHasLocalDelete;
+        DoIsComplexFunction:=OldDoIsComplexFunction;
+        DoHasMaybeDirectEval:=OldDoHasMaybeDirectEval;
+        OptimizeLocals:=OldOptimizeLocals;
+        HasFunctions:=OldHasFunctions;
+        DoHoldLocalVariablesInRegisters:=OldDoHoldLocalVariablesInRegisters;
        end;
-       if TBESENASTNodeFunctionBody(ToVisit).IsFunction then begin
-        Code.GenOp(bopSETCUNDEF);
-       end;
-       Code.GenOp(bopEND,0);
-       Code.HasLocalDelete:=DoHasLocalDelete;
-       Code.IsComplexFunction:=DoIsComplexFunction;
-       Code.HasMaybeDirectEval:=DoHasMaybeDirectEval;
-       Code.HoldLocalVariablesInRegisters:=DoHoldLocalVariablesInRegisters;
-       Code.MaxBlock:=CodeGeneratorContext.MaxBlockDepth;
-       Code.MaxLoop:=CodeGeneratorContext.MaxLoopDepth;
-       Code.MaxParamArgs:=CodeGeneratorContext.MaxParamArgs;
-       Code.MaxRegisters:=CodeGeneratorContext.MaxRegisters;
-      finally
-       BESENFreeAndNil(CodeGeneratorContext);
-       Code:=OldCode;
-       CodeGeneratorContext:=OldCodeGeneratorContext;
-       DoHasLocalDelete:=OldDoHasLocalDelete;
-       DoIsComplexFunction:=OldDoIsComplexFunction;
-       DoHasMaybeDirectEval:=OldDoHasMaybeDirectEval;
-       OptimizeLocals:=OldOptimizeLocals;
-       HasFunctions:=OldHasFunctions;
-       DoHoldLocalVariablesInRegisters:=OldDoHoldLocalVariablesInRegisters;
       end;
      end;
      bntFUNCTIONLITERAL:begin
@@ -5072,12 +5076,12 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
        r1:=DestRegNr;
       end else begin
        GenGetValue(r1,DestRegNr);
+       if IsValue(r1) then begin
+        CodeGeneratorContext.Registers[DestRegNr].IsWhat:=CodeGeneratorContext.Registers[r1].IsWhat;
+       end else begin
+        CodeGeneratorContext.Registers[DestRegNr].IsWhat:=bcgtVALUE;
+       end;
        CodeGeneratorContext.DeallocateRegister(r1);
-      end;
-      if IsValue(r1) then begin
-       CodeGeneratorContext.Registers[DestRegNr].IsWhat:=CodeGeneratorContext.Registers[r1].IsWhat;
-      end else begin
-       CodeGeneratorContext.Registers[DestRegNr].IsWhat:=bcgtVALUE;
       end;
      end;
      bntBINARYDIVIDEEXPRESSION:begin
@@ -5966,6 +5970,7 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
       if IsValueBoolean(DestRegNr) then begin
        r2:=DestRegNr;
       end else begin
+	   r2:=CodeGeneratorContext.AllocateRegister;
        Code.GenOp(bopTOBOOLEAN,r2,DestRegNr);
       end;
       L1:=Code.GenOp(bopJZ,0,r2)+1;
