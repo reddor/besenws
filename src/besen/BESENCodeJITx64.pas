@@ -772,6 +772,23 @@ begin
       pop rax
      end;
      AddCode(CodeBegin,CodeEnd);
+     Add(#$b8); // mov eax,Arg
+     AddDWord(Code.Locations[Operands^[0]].FileName);
+     asm
+      jmp @Skip
+       @CodeBegin:
+        mov dword ptr [rbx+TBESEN.CurrentFile],eax
+       @CodeEnd:
+      @Skip:
+      push rax
+      mov rax,offset @CodeBegin
+      mov qword ptr CodeBegin,rax
+      mov rax,offset @CodeEnd
+      mov qword ptr CodeEnd,rax
+      pop rax
+     end;
+     AddCode(CodeBegin,CodeEnd);
+
     end;
     bopGC:begin
      AddDispatcher;

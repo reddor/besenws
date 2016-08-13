@@ -121,7 +121,11 @@ type TBESEN=class;
 
      TBESENRegExpDebugOutputHook=procedure(const Instance:TBESEN;const Data:{$ifdef BESENSingleStringType}TBESENSTRING{$else}TBESENUTF8STRING{$endif};NewLine:TBESENBOOLEAN) of object;
 
+     { TBESEN }
+
      TBESEN=class
+      private
+       FFilenames: array of TBESENANSISTRING;
       public
        CriticalSection:TCriticalSection;
        Collector:TBESENCollector;
@@ -197,6 +201,7 @@ type TBESEN=class;
        GlobalLexicalEnvironment:TBESENLexicalEnvironment;
        ObjectNumberConstructorValue:TBESENValue;
        ObjectStringConstructorValue:TBESENValue;
+       FilenameSet,CurrentFile: Integer;
        constructor Create(ACompatibility:longword=0); overload;
        destructor Destroy; override;
        procedure Lock;
@@ -206,6 +211,8 @@ type TBESEN=class;
        procedure LockValue(const Value:TBESENValue);
        procedure UnlockValue(const Value:TBESENValue);
        function GetRandom:longword;
+       procedure SetFilename(AFilename: TBESENANSISTRING);
+       function GetFilename: TBESENANSISTRING;
        procedure RegisterNativeObject(const AName:TBESENString;const AClass:TBESENNativeObjectClass;const Attributes:TBESENObjectPropertyDescriptorAttributes=[bopaWRITABLE,bopaCONFIGURABLE]);
        procedure FunctionCall(Obj:TBESENObject;const ThisArgument:TBESENValue;const Arguments:array of TBESENValue;var AResult:TBESENValue);
        procedure FunctionConstruct(Obj:TBESENObject;const ThisArgument:TBESENValue;const Arguments:array of TBESENValue;var AResult:TBESENValue);
@@ -298,6 +305,8 @@ begin
  PeriodicHook:=nil;
  RegExpDebugOutputHook:=nil;
  LineNumber:=0;
+ CurrentFile:=-1;
+ FilenameSet:=-1;
  RandomGenerator:=TBESENRandomGenerator.Create(self);
  RegExpMaxStatesHoldInMemory:=breMAXSTATESHOLDINMEMORY;
  JITLoopCompileThreshold:=BESEN_JIT_LOOPCOMPILETHRESHOLD;
@@ -609,6 +618,30 @@ end;
 function TBESEN.GetRandom:longword;
 begin
  result:=RandomGenerator.Get;
+end;
+
+procedure TBESEN.SetFilename(AFilename: TBESENANSISTRING);
+var i:Integer;
+begin
+ for i:=0 to Length(FFilenames)-1 do
+ if FFilenames[i] = AFilename then
+ begin
+  FilenameSet:=i;
+  Exit;
+ end;
+ i:=Length(FFilenames);
+ Setlength(FFilenames, i+1);
+ FFilenames[i]:=AFilename;
+ FilenameSet:=i;
+end;
+
+function TBESEN.GetFilename: TBESENANSISTRING;
+begin
+ if(CurrentFile>=0)and(CurrentFile<Length(FFilenames)) then begin
+  result:=FFilenames[CurrentFile];
+ end else begin
+  result:='<Unknown>';
+ end;
 end;
 
 procedure TBESEN.RegisterNativeObject(const AName:TBESENString;const AClass:TBESENNativeObjectClass;const Attributes:TBESENObjectPropertyDescriptorAttributes=[bopaWRITABLE,bopaCONFIGURABLE]);

@@ -219,6 +219,7 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
     if ToVisit is TBESENASTNodeStatement then begin
      if TBESENASTNodeStatement(ToVisit).Location.LineNumber>0 then begin
       TBESEN(Instance).LineNumber:=TBESENASTNodeStatement(ToVisit).Location.LineNumber;
+      TBESEN(Instance).CurrentFile:=TBESENASTNodeStatement(ToVisit).Location.Filename;
      end;
     end;
     case ToVisit.NodeType of
@@ -612,6 +613,7 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
     if ToVisit is TBESENASTNodeStatement then begin
      if TBESENASTNodeStatement(ToVisit).Location.LineNumber>0 then begin
       TBESEN(Instance).LineNumber:=TBESENASTNodeStatement(ToVisit).Location.LineNumber;
+      TBESEN(Instance).CurrentFile:=TBESENASTNodeStatement(ToVisit).Location.Filename;
      end;
     end;
     case ToVisit.NodeType of
@@ -1041,6 +1043,7 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
     if ToVisit is TBESENASTNodeStatement then begin
      if TBESENASTNodeStatement(ToVisit).Location.LineNumber>0 then begin
       TBESEN(Instance).LineNumber:=TBESENASTNodeStatement(ToVisit).Location.LineNumber;
+      TBESEN(Instance).CurrentFile:=TBESENASTNodeStatement(ToVisit).Location.Filename;
      end;
     end;
     case ToVisit.NodeType of
@@ -1513,6 +1516,7 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
     if ToVisit is TBESENASTNodeStatement then begin
      if TBESENASTNodeStatement(ToVisit).Location.LineNumber>0 then begin
       TBESEN(Instance).LineNumber:=TBESENASTNodeStatement(ToVisit).Location.LineNumber;
+      TBESEN(Instance).CurrentFile:=TBESENASTNodeStatement(ToVisit).Location.Filename;
      end;
     end;
     case ToVisit.NodeType of
@@ -2999,6 +3003,7 @@ function TBESENCompiler.Compile(InputSource:TBESENUTF8STRING;const Parameters:TB
     if ToVisit is TBESENASTNodeStatement then begin
      if TBESENASTNodeStatement(ToVisit).Location.LineNumber>0 then begin
       TBESEN(Instance).LineNumber:=TBESENASTNodeStatement(ToVisit).Location.LineNumber;
+      TBESEN(Instance).CurrentFile:=TBESENASTNodeStatement(ToVisit).Location.Filename;
      end;
     end;
     case ToVisit.NodeType of

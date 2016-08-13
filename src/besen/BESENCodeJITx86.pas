@@ -1078,6 +1078,21 @@ begin
       mov dword ptr CodeEnd,offset @CodeEnd
      end;
      AddCode(CodeBegin,CodeEnd);
+
+     // this works, but it probably fucks up string reference counting D:
+     Add(#$b8); // mov eax,Arg
+     AddDWord(Cardinal(Code.Locations[Operands^[0]].FileName));
+     asm
+      jmp @Skip
+       @CodeBegin:
+        mov edx,dword ptr [esi+TBESENCodeContext.Instance]
+        mov dword ptr [edx+TBESEN.CurrentFile],eax
+       @CodeEnd:
+      @Skip:
+      mov dword ptr CodeBegin,offset @CodeBegin
+      mov dword ptr CodeEnd,offset @CodeEnd
+     end;
+     AddCode(CodeBegin,CodeEnd);
     end;
     bopGC:begin
      asm

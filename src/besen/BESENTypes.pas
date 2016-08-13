@@ -156,6 +156,7 @@ type{$ifdef BESENSingleStringType}
 
      TBESENLocation=record
       LineNumber:integer;
+      Filename:integer;
      end;
 
      PBESENDoubleHiLo=^TBESENDoubleHiLo;

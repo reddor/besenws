@@ -888,6 +888,7 @@ begin
  NodeType:=bntNONE;
  Target:=-1;
  Location.LineNumber:=-1;
+ Location.FileName:=TBESEN(Instance).FilenameSet;
  fillchar(CodeGenData,sizeof(TBESENASTNodeCodeGenData),#0);
  TrashNodes:=nil;
  CountTrashNodes:=0;

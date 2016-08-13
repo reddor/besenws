@@ -2014,6 +2014,7 @@ end;
 procedure TBESENCodeContext.OpLINE(Operands:PBESENINT32Array); {$ifdef UseRegister}register;{$endif}
 begin
  TBESEN(Instance).LineNumber:=Code.Locations[Operands^[0]].LineNumber;
+ TBESEN(Instance).CurrentFile:=Code.Locations[Operands^[0]].Filename;
 end;
 
 procedure TBESENCodeContext.OpGC(Operands:PBESENINT32Array); {$ifdef UseRegister}register;{$endif}

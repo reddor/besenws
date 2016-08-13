@@ -545,7 +545,7 @@ begin
  result:=-1;
  if TBESEN(Instance).CodeLineInfo or TBESEN(Instance).CodeTracable then begin
   for i:=0 to CountLocations-1 do begin
-   if Locations[i].LineNumber=l.LineNumber then begin
+   if (Locations[i].LineNumber=l.LineNumber)and(Locations[i].FileName=l.FileName) then begin
     result:=i;
     break;
    end;
