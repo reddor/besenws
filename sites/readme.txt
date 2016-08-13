@@ -1,0 +1,1 @@
+place your sites here. Each site must be in a dedicated subfolder and explicitly loaded in settings.js
