@@ -32,7 +32,7 @@ uses
   sockets,
   synsock,
 {$IFDEF OPENSSL_SUPPORT}
-  OpenSSL,
+  ssl_openssl_lib,
 {$ENDIF}
   logging;
 

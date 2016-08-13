@@ -32,18 +32,274 @@
         <CommandLineParams Value="-debug"/>
       </local>
     </RunParams>
-    <Units Count="1">
+    <Units Count="17">
       <Unit0>
         <Filename Value="besenws.pas"/>
         <IsPartOfProject Value="True"/>
-        <TopLine Value="6"/>
-        <CursorPos X="11" Y="29"/>
+        <TopLine Value="215"/>
+        <CursorPos X="7" Y="249"/>
         <UsageCount Value="201"/>
         <Loaded Value="True"/>
         <DefaultSyntaxHighlighter Value="Delphi"/>
       </Unit0>
+      <Unit1>
+        <Filename Value="beseninstance.pas"/>
+        <EditorIndex Value="4"/>
+        <TopLine Value="495"/>
+        <CursorPos X="19" Y="501"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit1>
+      <Unit2>
+        <Filename Value="besen/BESEN.pas"/>
+        <EditorIndex Value="10"/>
+        <TopLine Value="606"/>
+        <CursorPos X="34" Y="632"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit2>
+      <Unit3>
+        <Filename Value="../../../../coden/besen/src/BESEN.pas"/>
+        <EditorIndex Value="-1"/>
+        <TopLine Value="1017"/>
+        <CursorPos X="27" Y="1045"/>
+        <UsageCount Value="10"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit3>
+      <Unit4>
+        <Filename Value="besen/BESENASTNodes.pas"/>
+        <EditorIndex Value="11"/>
+        <TopLine Value="858"/>
+        <CursorPos X="49" Y="891"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit4>
+      <Unit5>
+        <Filename Value="besen/BESENTypes.pas"/>
+        <EditorIndex Value="15"/>
+        <TopLine Value="139"/>
+        <CursorPos X="15" Y="159"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit5>
+      <Unit6>
+        <Filename Value="besen/BESENCode.pas"/>
+        <EditorIndex Value="12"/>
+        <TopLine Value="530"/>
+        <CursorPos X="20" Y="537"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit6>
+      <Unit7>
+        <Filename Value="besen/BESENCodeContext.pas"/>
+        <EditorIndex Value="13"/>
+        <TopLine Value="1868"/>
+        <CursorPos X="61" Y="1997"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit7>
+      <Unit8>
+        <Filename Value="besen/BESENCompiler.pas"/>
+        <EditorIndex Value="14"/>
+        <TopLine Value="2969"/>
+        <CursorPos X="66" Y="2987"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit8>
+      <Unit9>
+        <Filename Value="besen/BESENCodeJITx64.pas"/>
+        <EditorIndex Value="9"/>
+        <TopLine Value="761"/>
+        <CursorPos X="46" Y="780"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit9>
+      <Unit10>
+        <Filename Value="webserver.pas"/>
+        <IsVisibleTab Value="True"/>
+        <EditorIndex Value="5"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit10>
+      <Unit11>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <EditorIndex Value="6"/>
+        <TopLine Value="1990"/>
+        <CursorPos X="37" Y="2012"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit11>
+      <Unit12>
+        <Filename Value="besenserverconfig.pas"/>
+        <EditorIndex Value="7"/>
+        <TopLine Value="371"/>
+        <CursorPos X="27" Y="374"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit12>
+      <Unit13>
+        <Filename Value="besenws.inc"/>
+        <EditorIndex Value="8"/>
+        <CursorPos X="32" Y="8"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit13>
+      <Unit14>
+        <Filename Value="webserverhosts.pas"/>
+        <EditorIndex Value="2"/>
+        <TopLine Value="79"/>
+        <CursorPos X="30" Y="98"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit14>
+      <Unit15>
+        <Filename Value="filecache.pas"/>
+        <EditorIndex Value="3"/>
+        <TopLine Value="47"/>
+        <CursorPos X="27" Y="83"/>
+        <UsageCount Value="11"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit15>
+      <Unit16>
+        <Filename Value="epollsockets.pas"/>
+        <EditorIndex Value="1"/>
+        <CursorPos X="18" Y="35"/>
+        <UsageCount Value="10"/>
+        <Loaded Value="True"/>
+        <DefaultSyntaxHighlighter Value="Delphi"/>
+      </Unit16>
     </Units>
-    <JumpHistory Count="0" HistoryIndex="0">
+    <JumpHistory Count="30" HistoryIndex="29">
+      <Position1>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <Caret Line="1068" Column="30" TopLine="1036"/>
+      </Position1>
+      <Position2>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <Caret Line="1069" Column="28" TopLine="1037"/>
+      </Position2>
+      <Position3>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <Caret Line="1827" Column="25" TopLine="1801"/>
+      </Position3>
+      <Position4>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <Caret Line="1994" Column="24" TopLine="1963"/>
+      </Position4>
+      <Position5>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <Caret Line="2020" Column="36" TopLine="1989"/>
+      </Position5>
+      <Position6>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+      </Position6>
+      <Position7>
+        <Filename Value="synapse/ssl_openssl_lib.pas"/>
+        <Caret Line="1821" Column="20" TopLine="1801"/>
+      </Position7>
+      <Position8>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="190" Column="20" TopLine="180"/>
+      </Position8>
+      <Position9>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1234" Column="13" TopLine="1203"/>
+      </Position9>
+      <Position10>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="411" Column="58" TopLine="392"/>
+      </Position10>
+      <Position11>
+        <Filename Value="webserver.pas"/>
+      </Position11>
+      <Position12>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="224" Column="14" TopLine="201"/>
+      </Position12>
+      <Position13>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1215" Column="5" TopLine="1197"/>
+      </Position13>
+      <Position14>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1351" TopLine="1315"/>
+      </Position14>
+      <Position15>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="718" TopLine="697"/>
+      </Position15>
+      <Position16>
+        <Filename Value="webserver.pas"/>
+      </Position16>
+      <Position17>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="101" TopLine="69"/>
+      </Position17>
+      <Position18>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="940" TopLine="908"/>
+      </Position18>
+      <Position19>
+        <Filename Value="besenws.pas"/>
+        <Caret Line="226" Column="39" TopLine="205"/>
+      </Position19>
+      <Position20>
+        <Filename Value="besenws.pas"/>
+        <Caret Line="191" Column="37" TopLine="172"/>
+      </Position20>
+      <Position21>
+        <Filename Value="besenws.pas"/>
+        <Caret Line="52" Column="20" TopLine="33"/>
+      </Position21>
+      <Position22>
+        <Filename Value="besenws.pas"/>
+        <Caret Line="138" Column="20" TopLine="106"/>
+      </Position22>
+      <Position23>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1284" Column="46" TopLine="1259"/>
+      </Position23>
+      <Position24>
+        <Filename Value="webserver.pas"/>
+      </Position24>
+      <Position25>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1152" Column="27" TopLine="1120"/>
+      </Position25>
+      <Position26>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1154" TopLine="1135"/>
+      </Position26>
+      <Position27>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1291" TopLine="1253"/>
+      </Position27>
+      <Position28>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="187" TopLine="150"/>
+      </Position28>
+      <Position29>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1159" TopLine="1121"/>
+      </Position29>
+      <Position30>
+        <Filename Value="webserver.pas"/>
+        <Caret Line="1291" TopLine="1253"/>
+      </Position30>
     </JumpHistory>
   </ProjectOptions>
   <CompilerOptions>
@@ -81,8 +337,6 @@
     </Other>
   </CompilerOptions>
   <Debugging>
-    <BreakPoints Count="0">
-    </BreakPoints>
     <Exceptions Count="3">
       <Item1>
         <Name Value="EAbort"/>

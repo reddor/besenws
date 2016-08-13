@@ -25,7 +25,7 @@ uses
   cthreads,
   {$ENDIF}
   {$IFDEF OPENSSL_SUPPORT}
-  openssl in 'openssl.pas',
+  ssl_openssl_lib,
   {$ENDIF}
   Classes,
   SysUtils,
@@ -49,6 +49,7 @@ var
   shutdown: Boolean;
   hasforked: Boolean;
   oa,na : PSigActionRec;
+  ConfigurationPath: ansistring;
 
 procedure ForkToBackground;
 begin
@@ -117,8 +118,81 @@ begin
   end;
 end;
 
+procedure ShowHelp;
+begin
+  Writeln('Usage:');
+  Writeln;
+  Writeln('  '+ExtractFileName(Paramstr(0))+' -debug <config path>');
+  Writeln;
+  Writeln('  -debug        - debugmode, don''t fork the process to background');
+  Writeln('  <config path> - alternative configuration path');
+end;
+
+procedure CheckParameters;
+var
+  i: Integer;
+  s: ansistring;
+  GotPath: Boolean;
+begin
+  GotPath:=False;
+
+  if ParamCount = 0 then
+  begin
+    Exit;
+  end;
+
+  for i:=1 to ParamCount do
+  begin
+    s:=Paramstr(i);
+    if pos('-', s)=1 then
+    begin
+      if s = '-debug' then
+        isdebug:=true
+      else
+      begin
+        Writeln('Invalid parameter '+s);
+        Writeln;
+        ShowHelp;
+        Halt(1);
+      end;
+    end else
+    begin
+      if not GotPath then
+      begin
+        GotPath:=True;
+        ConfigurationPath:=s
+      end else
+      begin
+        Writeln('Invalid parameter: '+s);
+        Writeln;
+        ShowHelp;
+        Halt(1);
+      end;
+    end;
+  end;
+
+  if ConfigurationPath[Length(ConfigurationPath)]<>'/' then
+    ConfigurationPath:=ConfigurationPath + '/';
+
+  if not DirectoryExists(ConfigurationPath) then
+  begin
+    Writeln('Invalid directory '+ConfigurationPath);
+    Halt(1);
+  end;
+end;
+
 begin
   Writeln('besen.ws server');
+
+  isdebug:=False;
+  ConfigurationPath:=ExtractFilePath(ParamStr(0));
+  CheckParameters;
+
+  if not FileExists(ConfigurationPath + 'settings.js') then
+  begin
+    Writeln(ConfigurationPath+'settings.js could not be found!');
+    Halt(1);
+  end;
 
   try
     new(na);
@@ -139,8 +213,6 @@ begin
     if fpSigAction(SIGPIPE,na,oa)<>0 then
       dolog(llError, 'Could not set up signalhandler!');
 
-    isdebug := Paramstr(1) = '-debug';
-
     if not isdebug then
     begin
       ForkToBackground;
@@ -151,8 +223,8 @@ begin
 
     shutdown:=False;
 
-    ServerManager:=TWebserverManager.Create;
-    ServerManager.Execute(ExtractFilePath(Paramstr(0))+'/settings.js', nil);
+    ServerManager:=TWebserverManager.Create(ConfigurationPath);
+    ServerManager.Execute(ConfigurationPath+'settings.js');
     dolog(llNotice, 'Loading complete');
     dolog(llNotice, IntToStr(ServerManager.Server.Sitemanager.TotalFileCount)+' files cached with '+
                     IntToFilesize(ServerManager.Server.Sitemanager.TotalFileSize)+'(+ '+
@@ -169,10 +241,13 @@ begin
 
     FreeMem(na);
     Freemem(oa);
+
+
   except
     on e: Exception do
       dolog(llError, 'A serious program error has occured: '+ e.Message);
   end;
+
   dolog(llNotice, 'Good bye');
 end.
 

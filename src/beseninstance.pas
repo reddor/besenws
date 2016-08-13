@@ -120,8 +120,6 @@ type
     constructor Create(Manager: TWebserverSiteManager; Site: TWebserverSite);
     destructor Destroy; override;
     procedure ProcessHandlers;
-    function GetFilename: string;
-    procedure SetFilename(AFilename: string);
     procedure AddEventHandler(Handler: TBESENInstanceHandler);
     procedure RemoveEventHandler(Handler: TBESENInstanceHandler);
     procedure OutputException(e: Exception);
@@ -322,12 +320,12 @@ begin
   if CountArguments<2 then
     Exit;
 
-  lf:=TBESENInstance(Instance).FileName;
+  lf:=TBESENInstance(Instance).FilenameSet;
   TBESENInstance(Instance).SetFilename(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)));
   try
     resultValue:=TBESEN(Instance).Eval(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)), BESENUndefinedValue);
   finally
-    TBESENInstance(Instance).FileName:=lf;
+    TBESENInstance(Instance).FilenameSet:=lf;
   end;
 end;
 
@@ -441,7 +439,7 @@ var
   oldfile: integer;
 begin
   resultValue:=BESENUndefinedValue;
-  oldfile:=FileName;
+  oldfile:=FilenameSet;
   for i:=0 to CountArguments-1 do
   begin
     gzip:=False;
@@ -459,7 +457,7 @@ begin
       Execute(data);
     end;
   end;
-  filename:=oldfile;
+  FilenameSet:=oldfile;
 end;
 
 constructor TBESENInstance.Create(Manager: TWebserverSiteManager;
@@ -499,18 +497,6 @@ begin
     GarbageCollector.Collect;
 end;
 
-function TBESENInstance.GetFilename: string;
-begin
-  result:=FFileNames[FileName];
-end;
-
-procedure TBESENInstance.SetFilename(AFilename: string);
-begin
-  FileName:=Length(FFileNames);
-  Setlength(FFileNames, FileName+1);
-  FFileNames[FileName]:=AFilename;
-end;
-
 procedure TBESENInstance.AddEventHandler(Handler: TBESENInstanceHandler);
 var
   i: Integer;
@@ -538,9 +524,9 @@ end;
 procedure TBESENInstance.OutputException(e: Exception);
 begin
   if Assigned(FSite) then
-    FSite.log(llError, '['+FFileNames[FileName]+','+IntTOStr(LineNumber)+'] '+e.Message)
+    FSite.log(llError, '['+GetFilename+','+IntToStr(LineNumber)+'] '+e.Message)
   else
-    dolog(llError, '[script] '+FFileNames[FileName]+','+IntTOStr(LineNumber)+': '+e.Message);
+    dolog(llError, '[script] '+GetFilename+','+IntToStr(LineNumber)+': '+e.Message);
 end;
 
 end.

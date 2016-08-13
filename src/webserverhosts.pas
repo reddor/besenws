@@ -95,7 +95,7 @@ type
     function GetTotalFileSize: longword;
     function GetTotalGZipFileSize: longword;
   public
-    constructor Create;
+    constructor Create(const BasePath: ansistring);
     destructor Destroy; override;
     procedure RescanAll;
     procedure ProcessTick;
@@ -349,7 +349,7 @@ end;
 
 function TWebserverSiteManager.GetTotalFileCount: longword;
 var
-  i: longword;
+  i: Integer;
 begin
   result:=0;
   for i:=0 to Length(FHosts)-1 do
@@ -358,7 +358,7 @@ end;
 
 function TWebserverSiteManager.GetTotalFileSize: longword;
 var
-  i: longword;
+  i: Integer;
 begin
   result:=0;
   for i:=0 to Length(FHosts)-1 do
@@ -367,17 +367,17 @@ end;
 
 function TWebserverSiteManager.GetTotalGZipFileSize: longword;
 var
-  i: longword;
+  i: Integer;
 begin
   result:=0;
   for i:=0 to Length(FHosts)-1 do
     result:=result + FHosts[i].Files.TotalGZipFileSize;
 end;
 
-constructor TWebserverSiteManager.Create;
+constructor TWebserverSiteManager.Create(const BasePath: ansistring);
 begin
-  FPath:=ExtractFilePath(Paramstr(0))+'sites/';
-  FSharedScriptsDir:=ExtractFilePath(Paramstr(0))+'shared/scripts/';
+  FPath:=BasePath+'sites/';
+  FSharedScriptsDir:=BasePath+'shared/scripts/';
   FSharedScripts:=TFileCache.Create;
   FSharedScripts.DoScan(FSharedScriptsDir, '/');
   FDefaultHost:=nil; //TWebserverSite.Create(Self, 'default');
@@ -456,9 +456,9 @@ begin
     result:=FHosts[i];
     Exit;
   end;
+  result:=TWebserverSite.Create(Self, Path);
   i:=Length(FHosts);
   Setlength(FHosts, i+1);
-  result:=TWebserverSite.Create(Self, Path);
   FHosts[i]:=result;
   dolog(llNotice, 'Loaded site "'+Path+'"');
   // result.AddHostAlias(Hostname);

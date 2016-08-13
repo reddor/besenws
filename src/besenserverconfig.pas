@@ -105,7 +105,7 @@ type
     FServerObject: TBESENWebserverObject;
     FPath: ansistring;
   public
-    constructor Create;
+    constructor Create(const BasePath: ansistring);
     destructor Destroy; override;
     procedure Execute(Filename: string);
     procedure Process;
@@ -368,10 +368,10 @@ end;
 
 { TWebserverManager }
 
-constructor TWebserverManager.Create;
+constructor TWebserverManager.Create(const BasePath: ansistring);
 begin
   ServerManager:=Self;
-  FServer:=TWebserver.Create;
+  FServer:=TWebserver.Create(BasePath);
   FInstance:=TBESENInstance.Create(FServer.SiteManager, nil);
   FPath:=FServer.SiteManager.Path;
   FServerObject:=TBESENWebserverObject.Create(FInstance);
@@ -392,11 +392,9 @@ end;
 procedure TWebserverManager.Execute(Filename: string);
 var
   lastfile: Integer;
-  besensite: TBESENWebserverSite;
 begin
   lastfile:=FInstance.CurrentFile;
   FInstance.SetFilename(ExtractFileName(Filename));
-
   FInstance.ObjectGlobal.put('server', BESENObjectValue(FServerObject), false);
 
   try

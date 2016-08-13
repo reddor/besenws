@@ -40,7 +40,7 @@ uses
   filecache,
   webserverhosts,
 {$IFDEF OPENSSL_SUPPORT}
-  OpenSSL,
+  ssl_openssl_lib,
 {$ENDIF}
   logging;
 
@@ -98,7 +98,6 @@ type
     procedure SendReply;
     function ExecuteScript(const Target: ansistring; const StatusCode: ansistring = ''): Boolean;
     procedure SendStatusCode(const Code: Word);
-    //procedure SendError(const ErrorCode, ErrorMessage: ansistring; const InternalReason: string = '');
   public
     constructor Create(Server: TWebserver; Socket: TSocket);
     destructor Destroy; override;
@@ -163,7 +162,7 @@ type
   protected
     procedure AddWorkerThread(AThread: TEpollWorkerThread);
   public
-    constructor Create;
+    constructor Create(const BasePath: ansistring);
     destructor Destroy; override;
     function SetThreadCount(Count: Integer): Boolean;
     function AddListener(IP, Port: ansistring): TWebserverListener;
@@ -183,53 +182,14 @@ uses
   base64;
 
 {$IFDEF OPENSSL_SUPPORT}
-var
-  GlobalLocks: array of TCriticalSection;
-  initCount: integer;
-
-procedure InitLocks;
-var i, j: Integer;
-begin
-  i:=InterLockedIncrement(InitCount);
-   if i>1 then
-     Exit;
-
-  j:=CRYPTOnumlocks;
-  Setlength(GlobalLocks, j);
-  for i:=0 to j-1 do
-    GlobalLocks[i]:=TCriticalSection.Create;
-end;
-
-procedure FinalizeLocks;
-var i: Integer;
-begin
-  i:=InterLockedDecrement(InitCount);
-  if i>=0 then
-    Exit;
-
-  for i:=0 to Length(GlobalLocks)-1 do
-    GlobalLocks[i].Free;
-  Setlength(GlobalLocks, 0);
-end;
-
-procedure locking_function(mode: longint; n: longint; _file: PChar; line: longint); cdecl;
-begin
-  if (mode and 1)<>0 then
-    GlobalLocks[n].Enter
-  else
-    GlobalLocks[n].Leave;
-end;
-
 function passwordcallback(buf: Pointer; Size: longint; rwflag: longint; userdata: pointer): longint; cdecl;
 var s: ansistring;
 begin
   result:=-1;
-
   if Assigned(userdata) then
     s:=TWebserverListener(userdata).FSSLCertPass
   else
     Exit;
-
   Move(s[1], buf^, length(s));
   result:=Length(s);
 end;
@@ -455,7 +415,6 @@ begin
       // unknown version
       fkeepalive:=False;
       SendStatusCode(505);
-      //SendError('400 Bad Request', 'The server decided to not understand your request.', 'Unknown HTTP version '+FHeader.version);
       Exit;
     end;
 
@@ -464,7 +423,6 @@ begin
       // http/1.1 without Host is not allowed
       fkeepalive:=False;
       SendStatusCode(400);
-      //SendError('400 Bad Request', 'The server decided to not understand your request.', 'HTTP/1.1 without HOST in header');
       Exit;
     end;
 
@@ -473,7 +431,6 @@ begin
     if not Assigned(FHost) then
     begin
       SendStatusCode(500);
-      // SendError('451 Too hot', 'The content you are trying to access has been censored for your own good.');
       Exit;
     end;
 
@@ -510,7 +467,6 @@ begin
     begin
       // ProcessWebsocket
       SendStatusCode(405);
-      //SendError('405 Not allowed', 'Go truck yourself');
     end
     else
       SendReply;
@@ -518,7 +474,6 @@ begin
   begin
     fkeepalive:=false;
     SendStatusCode(400);
-      //SendError('400 Bad Request', 'The server decided to not understand your request.', 'Could not read HTTP request');
     Exit;
   end;
   except
@@ -544,7 +499,6 @@ begin
   begin
     dolog(llDebug, 'Trying websocket but none is avail '+FHeader.url);
     SendStatusCode(404);
-      //SendError('404 Not Found', 'The requested URL '''+FHeader.url+''' could not be found.', 'Unknown websocket address');
   end;
 end;
 
@@ -680,7 +634,6 @@ begin
     end else
     begin
       SendStatusCode(403);
-      //SendError('403 Forbidden', 'You have no moral high grounds to see this.');
       Exit;
     end;
   end;
@@ -688,7 +641,6 @@ begin
   if not Assigned(FFile) then
   begin
     SendStatusCode(404);
-      //SendError('404 Not Found', 'The requested URL '''+FHeader.url+''' could not be found.');
     Exit;
   end;
 
@@ -709,7 +661,6 @@ begin
     begin
       Freply.header.Add('Expires', DateTimeToHTTPTime(IncSecond(Now, FFile.CacheLength)));
       FHost.Files.Release(FFile);
-      // dolog(llNotice, GetPeerName+': 304 '+FHeader.action+' '+FHeader.header['Host']+target);
       SendRaw(Freply.Build('304 Not Modified'));
       Exit;
     end;
@@ -760,12 +711,9 @@ begin
       SendContent(FFile^.mimetype, s);
 
     FHost.Files.Release(FFile);
-    // dolog(llNotice, GetPeerName+': 200 '+FHeader.action+' '+FHeader.header['Host']+target);
-
   end else
   begin
     SendStatusCode(403);
-      //SendError('403 Forbidden', 'If you manage to see this page, congratulations!');
     Exit;
   end;
 end;
@@ -989,7 +937,6 @@ begin
       begin
         // 128kb of data and still no complete request (not counting postdata)
         SendStatusCode(400);
-        //SendError('400 Bad Request', 'The server decided to not understand your request.');
         Close;
         Exit;
       end;
@@ -1188,13 +1135,13 @@ begin
   FWorker[i]:=AThread;
 end;
 
-constructor TWebserver.Create;
+constructor TWebserver.Create(const BasePath: ansistring);
 var
   i: Integer;
 begin
   FCS:=TCriticalSection.Create;
 
-  FSiteManager:=TWebserverSiteManager.Create;
+  FSiteManager:=TWebserverSiteManager.Create(BasePath);
   fcurrthread:=0;
   FWorkerCount:=1;
 
@@ -1202,10 +1149,8 @@ begin
     AddWorkerThread(TEpollWorkerThread.Create(Self));
 
 {$IFDEF OPENSSL_SUPPORT}
-  InitSSLInterface(True);
-  OpenSSL_add_all_algorithms;
-  InitLocks;
-  CRYPTOSetLockingCallback(@locking_function);
+  InitSSLInterface;
+  OPENSSLaddallalgorithms;
 {$ENDIF}
 end;
 
@@ -1226,7 +1171,7 @@ begin
     FCachedConnections[i].Free;
 
   FCS.Free;
-{$IFDEF OPENSSL_SUPPORT}
+{$IFDEF OLD_OPENSSL_SUPPORT}
   FinalizeLocks;
 {$ENDIF}
   inherited Destroy;
@@ -1277,7 +1222,7 @@ begin
 end;
 
 const
-  SendHelp: ansistring = 'To whom it may concern,'+#13#10#13#10+'fire! fire!';
+  SendHelp: ansistring = 'internal server error';
 
 procedure TWebserver.Accept(Sock: TSocket{$IFDEF OPENSSL_SUPPORT}; IsSSL: Boolean; SSLContext: PSSL_CTX{$ENDIF});
 var c: THTTPConnection;
@@ -1342,9 +1287,5 @@ begin
   end;
 end;
 
-{$IFDEF OPENSSL_SUPPORT}
-finalization
-  FinalizeLocks; // just to be sure
-{$ENDIF}
 end.
 
