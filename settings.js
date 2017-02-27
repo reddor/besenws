@@ -6,6 +6,8 @@ function start() {
 	// to load another site:
 	// loadSite('foobar', ['my-hostname1:18080', '127.0.0.1:18080']);
 	
+	loadSite('examples', ['127.0.0.1:18080']);
+	
 	// bind server to ip address:
 	server.addListener('127.0.0.1', '18080');
 	
