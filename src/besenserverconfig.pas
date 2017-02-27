@@ -76,6 +76,22 @@ type
     property cacheAutoUpdate: LongBool read GetAutoUpdate write SetAutoUpdate;
   end;
 
+  { TBESENWebserverListener }
+
+  TBESENWebserverListener= class(TBESENNativeObject)
+  private
+    FServer: TWebserver;
+    FListener: TWebserverListener;
+    function GetIP: TBESENString;
+    function GetPort: TBESENString;
+  published
+    { remove() - removes this listener }
+    procedure remove(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+
+    property ip: TBESENString read GetIP;
+    property port: TBESENString read GetPort;
+  end;
+
   { TBESENWebserverObject }
 
   TBESENWebserverObject = class(TBESENNativeObject)
@@ -86,6 +102,8 @@ type
   published
     { addListener(ip, port) - adds a listening socket to ip:port. }
     procedure addListener(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { removeListener(listener) - removes a listener }
+    procedure removeListener(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addSite(siteName) - returns a site-object. siteName must be equal to the site directory name }
     procedure addSite(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { setThreadCount(threadCount) - sets the number of worker threads to threadCount. number of cpu cores recommended }
@@ -122,6 +140,40 @@ uses
   mimehelper,
   besenwebsocket,
   logging;
+
+{ TBESENWebserverListener }
+
+function TBESENWebserverListener.GetIP: TBESENString;
+begin
+  if Assigned(FListener) then
+    result:=BESENUTF8ToUTF16(FListener.IP)
+  else
+    result:='';
+end;
+
+function TBESENWebserverListener.GetPort: TBESENString;
+begin
+  if Assigned(FListener) then
+    result:=BESENUTF8ToUTF16(FListener.Port)
+  else
+    result:='';
+end;
+
+procedure TBESENWebserverListener.remove(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+begin
+  ResultValue:=BESENBooleanValue(False);
+  if Assigned(FListener) then
+  begin
+    if FServer.RemoveListener(FListener) then
+    begin
+      FListener:=nil;
+      FServer:=nil;
+      ResultValue:=BESENBooleanValue(True);
+    end;
+  end;
+end;
 
 { TBESENWebserverSite }
 
@@ -279,24 +331,51 @@ end;
 procedure TBESENWebserverObject.addListener(const ThisArgument: TBESENValue;
   Arguments: PPBESENValues; CountArguments: integer;
   var ResultValue: TBESENValue);
-{$IFDEF OPENSSL_SUPPORT}
 var
   Listener: TWebserverListener;
-{$ENDIF}
+  ListenerObj: TBESENWebserverListener;
 begin
+  ResultValue:=BESENUndefinedValue;
+
   if CountArguments<2 then
     Exit;
 
-  {$IFDEF OPENSSL_SUPPORT}
-  Listener:=
-  {$ENDIF}
-  FServer.AddListener(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)));
+  Listener:=FServer.AddListener(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)));
+
+  ListenerObj:=TBESENWebserverListener.Create(Instance);
+  ListenerObj.FListener:=Listener;
+  ListenerObj.FServer:=FServer;
+  ListenerObj.InitializeObject;
+
+  ResultValue:=BESENObjectValue(ListenerObj);
 
   if CountArguments<5 then
     Exit;
 {$IFDEF OPENSSL_SUPPORT}
   Listener.EnableSSL(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[2]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[3]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[4]^)));
 {$ENDIF}
+end;
+
+procedure TBESENWebserverObject.removeListener(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+var
+  obj: TObject;
+begin
+  ResultValue:=BESENBooleanValue(False);
+  if CountArguments<1 then
+    Exit;
+
+  obj:=TBESEN(Instance).ToObj(Arguments^[0]^);
+
+  if obj is TBESENWebserverListener then
+  begin
+    if FServer.RemoveListener(TBESENWebserverListener(obj).FListener) then
+    begin
+      ResultValue:=BESENBooleanValue(True);
+      TBESENWebserverListener(obj).FListener:=nil;
+    end;
+  end;
 end;
 
 procedure TBESENWebserverObject.addSite(const ThisArgument: TBESENValue;
@@ -313,12 +392,15 @@ begin
 
   Site:=FServer.SiteManager.AddSite(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)));
 
-  BESENHost:=TBESENWebserverSite.Create(Instance);
-  BESENHost.FSite:=Site;
-  BESENHost.FServer:=FServer;
-  BESENHost.InitializeObject;
+  if Assigned(Site) then
+  begin
+    BESENHost:=TBESENWebserverSite.Create(Instance);
+    BESENHost.FSite:=Site;
+    BESENHost.FServer:=FServer;
+    BESENHost.InitializeObject;
 
-  ResultValue:=BESENObjectValue(BESENHost);
+    ResultValue:=BESENObjectValue(BESENHost);
+  end;
 end;
 
 procedure TBESENWebserverObject.setThreadCount(const ThisArgument: TBESENValue;
