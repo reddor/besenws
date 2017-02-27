@@ -286,7 +286,12 @@ begin
     Exit;
 
   Name:=TBESEN(Instance).ToStr(Arguments^[0]^);
-  Data:=TBESEN(Instance).ToStr(Arguments^[1]^);
+
+  if Arguments^[1]^.ValueType = bvtOBJECT then
+  begin
+    Data:=TBESEN(Instance).ToStr(TBESEN(Instance).JSONStringify(Arguments^[1]^));
+  end else
+    Data:=TBESEN(Instance).ToStr(Arguments^[1]^);
 
   if Assigned(FEvents) then
     FEvents.AddEvent(Name, Data);
