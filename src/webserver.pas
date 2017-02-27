@@ -90,6 +90,7 @@ type
     FHost: TWebserverSite;
     FContentLength: Integer;
     FGotHeader: Boolean;
+    FLastPing: longint;
     function GotCompleteRequest: Boolean;
   protected
     procedure ProcessData(const data: ansistring); override;
@@ -166,6 +167,7 @@ type
     destructor Destroy; override;
     function SetThreadCount(Count: Integer): Boolean;
     function AddListener(IP, Port: ansistring): TWebserverListener;
+    function RemoveListener(Listener: TWebserverListener): Boolean;
     procedure Accept(Sock: TSocket{$IFDEF OPENSSL_SUPPORT}; IsSSL: Boolean; SSLContext: PSSL_CTX{$ENDIF});
     procedure FreeConnection(Connection: THTTPConnection);
     property SiteManager: TWebserverSiteManager read FSiteManager;
@@ -869,7 +871,9 @@ begin
       inc(FIdletime);
       if FIdletime=FPingIdleTime then
       begin
-        s:=IntToStr(DateTimeToTimeStamp (Now).time);
+        if FLastPing = 0 then
+          FLastPing:=DateTimeToTimeStamp(Now).Time;
+        s:=IntToStr(FLastPing);
         SendRaw(CreateHeader(9, length(s))+s);
       end;
     end;
@@ -1085,11 +1089,19 @@ begin
           begin
             // pong
             try
-              FLag:=longword(DateTimeToTimeStamp (Now).time - (StrToInt(s)));
+              // edge doesn't include ping string?
+              if s<>'' then
+                FLag:=longword(DateTimeToTimeStamp (Now).time - (StrToInt(s)))
+              else if FLastPing <> 0 then
+                FLag:=DateTimeToTimeStamp(Now).Time - FLastPing;
+              FLastPing:=0;
               //dolog(lldebug, 'got pong, lag '+IntToStr(FLag)+'ms');
             except
-              dolog(llError, GetPeerName+': send invalid pong reply');
-              Close;
+              on e: Exception do
+              begin
+                dolog(llError, GetPeerName+': send invalid pong reply ' + s + ' '+e.Message);
+                Close;
+              end;
             end;
           end;
         end;
@@ -1214,11 +1226,41 @@ function TWebserver.AddListener(IP, Port: ansistring): TWebserverListener;
 var
   i: Integer;
 begin
-  i:=Length(FListener);
   dolog(llNotice, 'Creating listener for '''+IP+':'+Port+'''');
   result:=TWebserverListener.Create(Self, IP, Port);
-  Setlength(FListener, i+1);
-  FListener[i]:=result;
+  FCS.Enter;
+  try
+    i:=Length(FListener);
+    Setlength(FListener, i+1);
+    FListener[i]:=result;
+  finally
+    FCS.Leave;
+  end;
+end;
+
+function TWebserver.RemoveListener(Listener: TWebserverListener): Boolean;
+var
+  i: Integer;
+begin
+  result:=False;
+  FCS.Enter;
+  try
+    for i:=0 to Length(FListener)-1 do
+      if FListener[i] = Listener then
+      begin
+        FListener[i]:=FListener[Length(FListener)-1];
+        Setlength(FListener, Length(FListener)-1);
+        result:=True;
+      end;
+  finally
+    FCS.Leave;
+  end;
+  if result then
+  begin
+    dolog(llNotice, 'Removing listener for '''+Listener.IP+':'+Listener.Port+'''');
+    Listener.Free;
+  end else
+    dolog(llNotice, 'Could not remove listener for '''+Listener.IP+':'+Listener.Port+'''');
 end;
 
 const
