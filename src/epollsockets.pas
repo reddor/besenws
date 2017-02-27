@@ -48,6 +48,8 @@ type
   TEpollWorkerThread = class;
   TEPollSocketEvent = procedure(Sender: TEPollSocket) of object;
 
+  TEPollCallbackProc = procedure of object;
+
   { TEPollSocket }
 
   TEPollSocket = class
@@ -145,6 +147,8 @@ type
     FParent: TObject;
     FTicks: Integer;
     FTotalCount: Integer;
+    FPipeInput,
+    FPipeOutput: THandle;
     procedure RemoveSocket(Sock: TEPollSocket; doClose: Boolean = True; doFree: Boolean = true);
   protected
     { puts newly added sockets in epoll-queue }
@@ -156,6 +160,8 @@ type
   public
     constructor Create(aParent: TObject);
     destructor Destroy; override;
+    { execute callback proc in thread }
+    procedure Callback(Method: TEPollCallbackProc);
     { add socket - this is automatically called from TEPollSocket.Relocate }
     function AddSocket(Sock: TEPollSocket): Boolean;
     property EPollFD: integer read FEPollFD write FEpollFD;
@@ -525,9 +531,21 @@ var
   i, j, k: Integer;
   data: ansistring;
   conn: TEPollSocket;
+  Callback: TEPollCallbackProc;
+  event: epoll_event;
 begin
   epollfd:=0;
   epollfd := epoll_create(MaxConnectionsPerThread);
+
+  // add callback pipe
+  event.Events:=EPOLLIN;
+  event.Data.fd:=FPipeOutput;
+  fpfcntl(FPipeOutput, F_SetFl, fpfcntl(FPipeOutput, F_GetFl) or O_NONBLOCK);
+  if epoll_ctl(epollfd, EPOLL_CTL_ADD, FPipeOutput, @event)<0 then
+  begin
+    dolog(llError, 'epoll_ctl_add pipe failed, error #'+IntTostr(fpgeterrno)+' ');
+  end;
+
 
   Setlength(data, 64*1024); // temporary buffer
 
@@ -546,6 +564,14 @@ begin
     begin
       i := epoll_wait(epollfd, @FEpollEvents[0], k, EpollWaitTime);
       for j:=0 to i-1 do
+      if FEpollEvents[j].Data.fd = FPipeOutput then
+      begin
+        if FpRead(FEpollEvents[j].data.fd, Callback, SizeOf(Callback)) = SizeOf(Callback) then
+        begin
+          Callback();
+        end else
+          dolog(llError, 'Error reading epollworkerthread callback');
+      end else
       if Assigned((FEpollEvents[j].data.ptr)) then
       begin
        conn:=TEPollSocket(FEpollEvents[j].data.ptr);
@@ -695,6 +721,10 @@ begin
   FParent:=aParent;
   FCS:=TCriticalSection.Create;
 //  Priority:=tpHigher;
+
+  if assignpipe(FPipeOutput, FPipeInput)<>0 then
+    dolog(llError, 'Could not create pipes for epoll worker thread!');
+
   inherited Create(False);
 end;
 
@@ -708,6 +738,12 @@ begin
   Setlength(FSockets, 0);
   FCS.Destroy;
   inherited Destroy;
+end;
+
+procedure TEpollWorkerThread.Callback(Method: TEPollCallbackProc);
+begin
+  if FpWrite(FPipeInput, Method, sizeof(Method)) <> Sizeof(Method) then
+    dolog(llError, 'Error firing epollthead callback');
 end;
 
 function TEpollWorkerThread.AddSocket(Sock: TEPollSocket): Boolean;
