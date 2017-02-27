@@ -167,7 +167,14 @@ type
 implementation
 
 uses
+  besenwebsocket,
   webserver;
+
+const
+  { Default waiting time for epoll }
+  EpollWaitTime = 100;
+  { ticks until CheckTimeout function is called }
+  ClientTickInterval = 1000 div EpollWaitTime;
 
 { TEPollSocket }
 
@@ -267,19 +274,27 @@ begin
     if k<0 then
     begin
       err:=fpgeterrno;
-      if err=ESysECONNRESET then
-      begin
-        dolog(llDebug, GetPeerName+': Connection reset');
-        result:=False;
-        FWantClose:=True;
-      end else
-      if err<>ESysEWOULDBLOCK then
-      begin
-        dolog(llDebug, GetPeerName+': error in fprecv #'+IntTostr(err));
-        result:=False;
-        FWantClose:=True;
-      end else
-        result:=True; // would block
+      case err of
+        ESysEWOULDBLOCK: result:=True;
+        ESysECONNRESET:
+        begin
+          dolog(llDebug, GetPeerName+': Connection reset');
+          result:=False;
+          FWantClose:=True;
+        end;
+        ESysETIMEDOUT:
+        begin
+          dolog(llDebug, GetPeerName+': Connection timeout');
+          result:=False;
+          FWantClose:=True;
+        end;
+        else
+        begin
+          dolog(llDebug, GetPeerName+': error in fprecv #'+IntTostr(err));
+          result:=False;
+          FWantClose:=True;
+        end;
+      end;
     end else
     begin
       result:=False; // connection closed
@@ -529,7 +544,7 @@ begin
       Continue;
     end else
     begin
-      i := epoll_wait(epollfd, @FEpollEvents[0], k, 1000);
+      i := epoll_wait(epollfd, @FEpollEvents[0], k, EpollWaitTime);
       for j:=0 to i-1 do
       if Assigned((FEpollEvents[j].data.ptr)) then
       begin
@@ -659,8 +674,9 @@ procedure TEpollWorkerThread.ThreadTick;
 var j: Integer;
 begin
   inc(Fticks);
-  if(FTicks mod 100=0) then
+  if(FTicks>=ClientTickInterval) then
   begin
+    FTicks:=0;
     j:=Length(FSockets)-1;
     while j>=0 do
     begin
