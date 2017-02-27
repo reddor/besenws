@@ -176,7 +176,7 @@ procedure TBESENEventListener.ConstructObject(const ThisArgument: TBESENValue;
   Arguments: PPBESENValues; CountArguments: integer);
 begin
   if CountArguments<1 then
-    raise EBESENError.Create('Identifier expected x');
+    raise EBESENError.Create('Identifier expected');
 
   TBESENInstance(Instance).AddEventHandler(ProcessEvents);
 
