@@ -306,7 +306,12 @@ begin
   gzip:=False;
   content:='';
 
-  if FSite.Files.GetFile(Path + filename, content, gzip)<=0 then
+  if (Length(Path)>0)and(Path[Length(Path)]='/') then
+    temp:=Path + filename
+  else
+    temp:=Path + '/' + filename;
+
+  if FSite.Files.GetFile(temp, content, gzip)<=0 then
     Exit;
 
   result:=True;
