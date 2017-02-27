@@ -63,6 +63,8 @@ type
     procedure disconnect(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { getHeader(item) - returns an entry from the http request header }
     procedure getHeader(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { redirect(url) - perform a redirect (if not websocket) }
+    procedure redirect(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { the remote client ip }
     property host: string read GetHostname;
     { client lag - only measured/updated during idle pings }
@@ -382,6 +384,24 @@ begin
   if CountArguments>0 then
     if(Assigned(FConnection)) then
       ResultValue:=BESENStringValue(BESENUTF8ToUTF16(FConnection.Header.header[BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^))]));
+end;
+
+procedure TBESENWebsocketClient.redirect(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+var
+  url: ansistring;
+begin
+  if Assigned(FConnection) then
+  begin
+    if (CountArguments>0) and FIsRequest then
+    begin
+      url:=BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^));
+      FConnection.Reply.header.Add('Location', url);
+      FConnection.SendContent('text/html', '<html><body>Content has been moved to <a href="'+url+'">'+url+'</a></body></html>', '302 Found');
+      FConnection.Close;
+    end;
+  end;
 end;
 
 
