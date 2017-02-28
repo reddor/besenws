@@ -357,7 +357,7 @@ function URLDecode(const Input: ansistring): ansistring;
 var
   i, j, k: Integer;
 begin
-  result:=Input;
+  result:=StringReplace(Input, '+', ' ', [rfReplaceAll]);
   i:=Pos('%', result);
   while (i>0) and (i<=Length(result)-2) do
   begin
@@ -1004,8 +1004,20 @@ begin
   begin
     if Length(str)>=len then
     begin
-      FPostData:=Copy(str, 1, len);
+      //FPostData:=Copy(str, 1, len);
+      s:=Copy(str, 1, len)+'&';
       Delete(str, 1, len);
+      while pos('&', s)>0 do
+      begin
+        s2:=Copy(s, 1, pos('&', s)-1);
+        Delete(s, 1, pos('&', s));
+        if pos('=', s2)>0 then
+        begin
+          dataname:=Copy(s2, 1, pos('=', s2)-1);
+          Delete(s2, 1, pos('=', s2));
+          FEntities.Add(dataname, URLDecode(s2));
+        end;
+      end;
       result:=True;
     end;
   end
