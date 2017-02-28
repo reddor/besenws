@@ -40,7 +40,8 @@ uses
   besenevents,
   besenwebscript,
   beseninstance,
-  epollsockets;
+  epollsockets,
+  besendb;
 
 {$R *.res}
 
@@ -183,6 +184,24 @@ end;
 
 begin
   Writeln('besen.ws server');
+
+  (*
+  with TDatabaseConnection.Create do
+  begin
+    if Initialize(dtMySql) then
+    begin
+      if connect('127.0.0.1', 'root', 'meister', 'test') then
+      begin
+        Writeln('connected');
+        Query('select * from test');
+        Writeln(RowsAffected, ' ', FieldCount, ' ', RecordCount);
+      end else
+      Writeln('connect fail');
+
+    end else
+      Writeln('could not initialize');
+    Exit;
+  end; *)
 
   isdebug:=False;
   ConfigurationPath:=ExtractFilePath(ParamStr(0));

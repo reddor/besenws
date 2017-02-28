@@ -113,16 +113,18 @@ type
     FHandlers: array of TBESENInstanceHandler;
     FSystemObject: TBESENSystemObject;
     FTicks: Integer;
+    FThread: TThread;
     { importScripts(filename1, filename2, ...) - executes scripts }
     procedure NativeImportScripts(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
   public
     ShuttingDown: Boolean;
-    constructor Create(Manager: TWebserverSiteManager; Site: TWebserverSite);
+    constructor Create(Manager: TWebserverSiteManager; Site: TWebserverSite; Thread: TThread= nil);
     destructor Destroy; override;
     procedure ProcessHandlers;
     procedure AddEventHandler(Handler: TBESENInstanceHandler);
     procedure RemoveEventHandler(Handler: TBESENInstanceHandler);
     procedure OutputException(e: Exception);
+    property Thread: TThread read FThread;
   end;
 
 
@@ -132,6 +134,7 @@ implementation
 
 uses
   besenevents,
+  besendb,
   logging;
 
 procedure OutputBESENException(e: Exception; Besen: TBESEN);
@@ -461,7 +464,7 @@ begin
 end;
 
 constructor TBESENInstance.Create(Manager: TWebserverSiteManager;
-  Site: TWebserverSite);
+  Site: TWebserverSite; Thread: TThread);
 begin
   inherited Create(COMPAT_JS);
   ShuttingDown:=False;
@@ -471,9 +474,11 @@ begin
   Setlength(FFileNames, 1);
   FFileNames[0]:='Unknown';
   FSite:=Site;
+  FThread:=Thread;
 
   ObjectGlobal.put('system', BESENObjectValue(FSystemObject), false);
   RegisterNativeObject('EventList', TBESENEventListener);
+  RegisterNativeObject('DatabaseConnection', TBESENDatabaseConnection);
   ObjectGlobal.RegisterNativeFunction('importScripts',NativeImportScripts,0,[]);
   ObjectGlobal.RegisterNativeFunction('setTimeout',FSystemObject.setTimeout,0,[]);
 end;
