@@ -431,6 +431,8 @@ begin
         if URLPathToAbsolutePath(target, FBaseDir, s) then
         begin
           result:=ReadFile(target, s);
+          if Assigned(result) then
+            result.Locked:=False;
         end;
       end;
     end;
