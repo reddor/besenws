@@ -709,6 +709,9 @@ begin
   begin
     Inc(FSocketCount);
     result:=True;
+
+    if Assigned(FOnConnection) then
+      FOnConnection(Sock);
   end;
 end;
 
