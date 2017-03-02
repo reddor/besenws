@@ -252,7 +252,7 @@ begin
       Break;
    end;
 
-  FInstance.GarbageCollector.CollectAll;
+  FInstance.GarbageCollector.Collect;
 end;
 
 function TBESENWebsocket.GetClient(AClient: THTTPConnection): TBESENWebsocketClient;
