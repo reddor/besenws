@@ -29,6 +29,7 @@ uses
   syncobjs,
   filecache,
   datautils,
+  httphelper,
   jsonstore,
   logging;
 
@@ -51,8 +52,12 @@ type
     FFileCache: TFileCache;
     FCustomHandlers: THashtable;
     FScriptDirs: array of record
-      dir: string;
-      script: string;
+      dir: ansistring;
+      script: ansistring;
+    end;
+    FResponseHeaders: array of record
+      name: ansistring;
+      value: ansistring;
     end;
     FForwards: TStringHashtable;
     FCustomStatusPages: array[CustomStatusPageMin..CustomStatusPageMax] of ansistring;
@@ -66,10 +71,12 @@ type
     procedure AddForward(target, NewTarget: string);
     function IsScriptDir(target: string; out Script, Params: string): Boolean;
     function IsForward(target: string; out NewTarget: string): Boolean;
+    procedure AddResponseHeader(const name, value: ansistring);
     procedure AddFile(filename, content, fullpath: string);
     procedure AddHostAlias(HostName: string);
     procedure AddCustomHandler(url: string; Handler: Pointer);
     procedure AddCustomStatusPage(StatusCode: Word; URI: string);
+    procedure ApplyResponseHeader(const Response: THTTPReply);
     function GetCustomStatusPage(StatusCode: Word): ansistring;
     function GetStore(const Location: string): string;
     function PutStore(const Location, Data: string): Boolean;
@@ -170,6 +177,10 @@ begin
   FPath:=FParent.Path+Path+'/';
 
   FStorage.Put(FName, FileToStr(FPath+'storage.json'));
+
+  AddResponseHeader('X-Frame-Options', 'SAMEORIGIN');
+  AddResponseHeader('X-XSS-Protection', '1');
+  AddResponseHeader('X-Content-Type-Options', 'nosniff');
   Rescan;
 end;
 
@@ -273,6 +284,38 @@ begin
   result:=NewTarget<>'';
 end;
 
+procedure TWebserverSite.AddResponseHeader(const name, value: ansistring);
+var
+  i: Integer;
+  add:Boolean;
+begin
+  FCS.Enter;
+  try
+    add:=True;
+    for i:=0 to Length(FResponseHeaders)-1 do
+    if FResponseHeaders[i].name = name then
+    begin
+      if value='' then
+      begin
+        FResponseHeaders[i]:=FResponseHeaders[Length(FResponseHeaders)-1];
+        Setlength(FResponseHeaders, Length(FResponseHeaders)-1);
+      end else
+        FResponseHeaders[i].value:=value;
+      add:=False;
+      Break;
+    end;
+    if add then
+    begin
+      i:=Length(FResponseHeaders);
+      Setlength(FResponseHeaders, i+1);
+      FResponseHeaders[i].name:=name;
+      FResponseHeaders[i].value:=value;
+    end;
+  finally
+    FCS.Leave;
+  end;
+end;
+
 procedure TWebserverSite.AddFile(filename, content, fullpath: string);
 begin
   FFileCache.AddFile(filename, content, fullpath);
@@ -294,6 +337,19 @@ begin
   if (StatusCode>=CustomStatusPageMin)and
      (StatusCode<=CustomStatusPageMax) then
   FCustomStatusPages[StatusCode]:=URI;
+end;
+
+procedure TWebserverSite.ApplyResponseHeader(const Response: THTTPReply);
+var
+  i: Integer;
+begin
+  FCS.Enter;
+  try
+    for i:=0 to Length(FResponseHeaders)-1 do
+      Response.header.Add(FResponseHeaders[i].name, FResponseHeaders[i].Value);
+  finally
+    FCS.Leave;
+  end;
 end;
 
 function TWebserverSite.GetCustomStatusPage(StatusCode: Word): ansistring;

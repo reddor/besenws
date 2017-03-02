@@ -436,6 +436,8 @@ begin
       Exit;
     end;
 
+    FHost.ApplyResponseHeader(FReply);
+
     if (FHeader.action <> 'GET')and(FHeader.action <> 'HEAD')and(FHeader.action <> 'POST') then
     begin
       // method not allowed, this server has no POST implementation
@@ -635,7 +637,7 @@ begin
       FFile:=FHost.Files.Find(target);
     end else
     begin
-      SendStatusCode(403);
+      SendStatusCode(404);
       Exit;
     end;
   end;

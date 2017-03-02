@@ -59,6 +59,8 @@ type
     procedure addScriptAlias(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addStatusPage(statusCode, target) - replaces a http status page (404 etc) with a custom page. can be static html or script }
     procedure addStatusPage(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { addResponseHeader(name, value) - adds a default response header entry }
+    procedure addResponseHeader(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addWebsocket(url, script) - creates a new script instance & thread with "script" loaded.
          "script" must point to a filename in the site root directory }
     procedure addWebsocket(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
@@ -240,6 +242,16 @@ begin
   if CountArguments<2 then Exit;
 
   FSite.AddCustomStatusPage(TBESEN(Instance).ToInt(Arguments^[0]^), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)));
+end;
+
+procedure TBESENWebserverSite.addResponseHeader(
+  const ThisArgument: TBESENValue; Arguments: PPBESENValues;
+  CountArguments: integer; var ResultValue: TBESENValue);
+begin
+  if CountArguments<2 then
+    Exit;
+
+  FSite.AddResponseHeader(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)));
 end;
 
 procedure TBESENWebserverSite.addWebsocket(const ThisArgument: TBESENValue;
