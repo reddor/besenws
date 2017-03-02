@@ -45,13 +45,8 @@ uses
   logging;
 
 const
-  { maximum concurrent connections per thread }
-  MaxConnectionsPerThread = 40000;
   { maximum number of cached THTTPConnection classes }
   ConnectionCacheSize = 2048;
-  { maximum number of sockets a thread can accept in a single turn, inbetween
-    epoll events }
-  NewSocketBufferSize = 1024;
 
 type
   TWebsocketVersion = (wvNone, wvUnknown, wvHixie76, wvHybi07, wvHybi10, wvRFC);
@@ -1301,12 +1296,7 @@ begin
 {$ENDIF}
 
   c.GetPeerName;
-  if not c.Relocate(FWorker[fcurrthread]) then
-  begin
-    c.SendRaw(SendHelp);
-    dolog(llError, c.GetPeerName+': Could not assign new connection to thread');
-    c.Free;
-  end;
+  c.Relocate(FWorker[fcurrthread]);
 end;
 
 procedure TWebserver.FreeConnection(Connection: THTTPConnection);

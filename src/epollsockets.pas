@@ -39,9 +39,6 @@ uses
 const
   { maximum concurrent connections per thread }
   MaxConnectionsPerThread = 40000;
-  { maximum number of sockets a thread can accept in a single turn, inbetween
-    epoll events }
-  NewSocketBufferSize = 1024;
 
 type
   TEPollSocket = class;
@@ -69,6 +66,8 @@ type
     FSSLWantWrite: Boolean;
     procedure CheckSSLError(ErrNo: Longword);
 {$ENDIF}
+    { internal callback function that adds socket in parent thread }
+    procedure AddCallback;
   protected
     { process incoming data - called by worker thread, has to be overridden }
     procedure ProcessData(const Data: ansistring); virtual; abstract;
@@ -101,7 +100,7 @@ type
       before }
     procedure Reassign(Socket: TSocket);
     { move socket to another worker thread }
-    function Relocate(NewParent: TEpollWorkerThread): Boolean;
+    procedure Relocate(NewParent: TEpollWorkerThread);
     { marks the connection as "WantClosed". Remaining asynchronous send operations
       will be finished first before the socket is actually closed. this is done
       in the worker thread }
@@ -136,34 +135,29 @@ type
 
   TEpollWorkerThread = class(TThread)
   private
-    FCS: TCriticalSection;
     FEpollFD: integer;
-    FOnConnection: TEPollSocketEvent;
-    FUpdated: Boolean;
-    FNewSocketCount: Integer;
-    FNewSockets: array[0..NewSocketBufferSize-1] of TEPollSocket;
-    FEpollEvents: array[0..MaxConnectionsPerThread-1] of epoll_event;
-    FSockets: array of TEPollSocket;
+    FSocketCount: Integer;
+    FEpollEvents: array[0..MaxConnectionsPerThread] of epoll_event;
+    FSockets: array[0..MaxConnectionsPerThread-1] of TEPollSocket;
     FParent: TObject;
     FTicks: Integer;
     FTotalCount: Integer;
     FPipeInput,
     FPipeOutput: THandle;
+    FOnConnection: TEPollSocketEvent;
     procedure RemoveSocket(Sock: TEPollSocket; doClose: Boolean = True; doFree: Boolean = true);
   protected
-    { puts newly added sockets in epoll-queue }
-    procedure GetNewSockets;
     { called inbetween epoll, checks for client timeouts }
     procedure ThreadTick; virtual;
     { overriden thread function }
     procedure Execute; override;
+    { add socket - this is called from TEPollSocket-relocate within this thread }
+    function AddSocket(Sock: TEPollSocket): Boolean;
   public
     constructor Create(aParent: TObject);
     destructor Destroy; override;
     { execute callback proc in thread }
-    procedure Callback(Method: TEPollCallbackProc);
-    { add socket - this is automatically called from TEPollSocket.Relocate }
-    function AddSocket(Sock: TEPollSocket): Boolean;
+    function Callback(Method: TEPollCallbackProc): Boolean;
     property EPollFD: integer read FEPollFD write FEpollFD;
     property OnConnection: TEPollSocketEvent read FOnConnection write FOnConnection;
     property Totalcount: Integer read FTotalCount;
@@ -232,6 +226,19 @@ begin
       dolog(llError, GetPeerName+': SSL Read Error - Other #'+IntToStr(i));
   end;
 end;
+
+procedure TEPollSocket.AddCallback;
+begin
+  if not FParent.AddSocket(Self) then
+  begin
+    dolog(llError, GetPeerName + ': Could not relocate to thread, dropping!');
+    FParent:=nil;
+    FWantclose:=True;
+    //FSockets[i+k].OnDisconnect:=nil;
+    Dispose;
+  end;
+end;
+
 {$ENDIF}
 
 procedure TEPollSocket.SendRaw(const Data: ansistring; Flush: Boolean);
@@ -423,17 +430,18 @@ begin
   result:=FRemoteIP;
 end;
 
-function TEPollSocket.Relocate(NewParent: TEpollWorkerThread): Boolean;
+procedure TEPollSocket.Relocate(NewParent: TEpollWorkerThread);
 begin
   if Assigned(FParent) then
     FParent.RemoveSocket(Self, False, False);
 
   FParent:=NewParent;
-  result:=NewParent.AddSocket(Self);
-
-  if not result then
+  if not NewParent.Callback(AddCallback) then
   begin
+    dolog(llError, GetPeerName+': Callback for relocation failed, dropping!');
     FParent:=nil;
+    FWantClose:=True;
+    Dispose;
   end;
 end;
 
@@ -528,7 +536,7 @@ end;
 
 procedure TEpollWorkerThread.Execute;
 var
-  i, j, k: Integer;
+  i, j: Integer;
   data: ansistring;
   conn: TEPollSocket;
   Callback: TEPollCallbackProc;
@@ -546,69 +554,48 @@ begin
     dolog(llError, 'epoll_ctl_add pipe failed, error #'+IntTostr(fpgeterrno)+' ');
   end;
 
-
   Setlength(data, 64*1024); // temporary buffer
 
   while (not Terminated) do
   begin
-    GetNewSockets;
-    k:=Length(FSockets);
-    if k>MaxConnectionsPerThread then
-      k:=MaxConnectionsPerThread;
-    if k=0 then
+    i := epoll_wait(epollfd, @FEpollEvents[0], FSocketCount+1, EpollWaitTime);
+    for j:=0 to i-1 do
+    if FEpollEvents[j].Data.fd = FPipeOutput then
     begin
-      Sleep(10);
-      ThreadTick;
-      Continue;
-    end else
-    begin
-      i := epoll_wait(epollfd, @FEpollEvents[0], k, EpollWaitTime);
-      for j:=0 to i-1 do
-      if FEpollEvents[j].Data.fd = FPipeOutput then
+      // we only expect class function pointers from the callback pipe
+      if FpRead(FEpollEvents[j].data.fd, Callback, SizeOf(Callback)) = SizeOf(Callback) then
       begin
-        if FpRead(FEpollEvents[j].data.fd, Callback, SizeOf(Callback)) = SizeOf(Callback) then
-        begin
-          Callback();
-        end else
-          dolog(llError, 'Error reading epollworkerthread callback');
+        Callback();
       end else
-      if Assigned((FEpollEvents[j].data.ptr)) then
+        dolog(llError, 'Error reading epollworkerthread callback');
+    end else
+    if Assigned((FEpollEvents[j].data.ptr)) then
+    begin
+      conn:=TEPollSocket(FEpollEvents[j].data.ptr);
+
+      if conn.FParent <> Self then
       begin
-       conn:=TEPollSocket(FEpollEvents[j].data.ptr);
+        dolog(llError, conn.GetPeerName+': got epoll message from connection located in different thread');
+      end else
+      if (FEpollEvents[j].Events and EPOLLIN<>0) then
+      begin
+        conn.ReadData(Data);
+      end else if (FEpollEvents[j].Events and EPOLLOUT<>0) then
+      begin
+        conn.FlushSendbuffer;
+      end else if (FEpollEvents[j].Events and EPOLLERR<>0) then
+      begin
+        dolog(llDebug, 'got epoll-error '+Inttostr(fpgeterrno));
+        conn.FWantclose:=True;
+      end else
+      begin
+        dolog(llDebug, 'unknown epoll-event '+IntToStr(FEpollEvents[j].Events));
+        conn.FWantclose:=True;
+      end;
 
-       if conn.FParent <> Self then
-       begin
-         dolog(llError, conn.GetPeerName+': got epoll message from connection located in different thread');
-       end else
-       if (FEpollEvents[j].Events and EPOLLIN<>0) then
-       begin
-         conn.ReadData(Data);
-       end else if (FEpollEvents[j].Events and EPOLLOUT<>0) then
-       begin
-         conn.FlushSendbuffer;
-       end else if (FEpollEvents[j].Events and EPOLLERR<>0) then
-        begin
-          dolog(llDebug, 'got epoll-error '+Inttostr(fpgeterrno));
-          conn.FWantclose:=True;
-        end else
-        begin
-          dolog(llDebug, 'unknown epoll-event '+IntToStr(FEpollEvents[j].Events));
-          conn.FWantclose:=True;
-        end;
-
-        if not Assigned(conn.FParent) then
-        begin
-          // the connection tried to relocate itself to another thread, but if failed
-          dolog(llError, conn.GetPeerName+': Could not relocate - dropping connection!');
-          // we have to drop the disconnect-event, as we might fire it from the wrong thread
-          conn.FonDisconnect:=nil;
-          // at this point we have to close the socket and forget about the incident
-          conn.Free;
-        end else
-        if (conn.FParent = Self) and (conn.WantClose) then
-        begin
-           RemoveSocket(conn);
-        end;
+      if (conn.FParent = Self) and (conn.WantClose) then
+      begin
+        RemoveSocket(conn);
       end;
     end;
     ThreadTick;
@@ -626,7 +613,7 @@ procedure TEpollWorkerThread.RemoveSocket(Sock: TEPollSocket;
 var
   i: Integer;
 begin
-  for i:=0 to Length(FSockets)-1 do
+  for i:=0 to FSocketCount-1 do
   if FSockets[i] = Sock then
   begin
     if epoll_ctl(epollfd, EPOLL_CTL_DEL, FSockets[i].Socket, nil)<0 then
@@ -634,65 +621,14 @@ begin
 
     sock.FParent:=nil;
 
-    FSockets[i]:=FSockets[Length(FSockets)-1];
-    Setlength(FSockets, Length(FSockets)-1);
+    Dec(FSocketCount);
+    FSockets[i]:=FSockets[FSocketCount];
 
     if doFree then
     begin
       Sock.Dispose;
     end;
     Exit;
-  end;
-end;
-
-procedure TEpollWorkerThread.GetNewSockets;
-var
-  i,j,k: Integer;
-  event: epoll_event;
-begin
-  FCS.Enter;
-  try
-    if FUpdated then
-    begin
-      FUpdated:=False;
-
-      i := Length(FSockets);
-      Setlength(FSockets, i+FNewSocketCount);
-
-      k:=0;
-
-      for j:=0 to FNewSocketCount-1 do
-      begin
-        FSockets[i+k]:=FNewsockets[j];
-{$IFDEF OPENSSL_SUPPORT}
-        if FSockets[i+k].WantSSL then
-        begin
-          FSockets[i+k].StartSSL;
-          FSockets[i+k].WantSSL:=False;
-        end;
-{$ENDIF}
-        event.Events:=EPOLLIN;
-        event.Data.ptr:=FSockets[i+k];
-
-        if epoll_ctl(epollfd, EPOLL_CTL_ADD, FSockets[i+k].Socket, @event)<0 then
-        begin
-          dolog(llDebug, 'epoll_ctl_add failed, error #'+IntTostr(fpgeterrno)+' '+IntToStr(i)+' '+IntToStr(k)+' '+IntToStr(FSockets[i+k].SOcket));
-          FSockets[i+k].FWantclose:=True;
-          //FSockets[i+k].OnDisconnect:=nil;
-          FSockets[i+k].Dispose;
-        end else
-        begin
-          if Assigned(FOnConnection) then
-            FOnConnection(FSockets[i+k]);
-          inc(k);
-        end;
-      end;
-      if k<>FNewSocketCount then
-        Setlength(FSockets, i+k);
-    end;
-    FNewSocketCount:=0;
-  finally
-    FCS.Leave;
   end;
 end;
 
@@ -703,7 +639,7 @@ begin
   if(FTicks>=ClientTickInterval) then
   begin
     FTicks:=0;
-    j:=Length(FSockets)-1;
+    j:=FSocketCount-1;
     while j>=0 do
     begin
       if (FSockets[j].CheckTimeout)or Terminated then
@@ -719,8 +655,6 @@ end;
 constructor TEpollWorkerThread.Create(aParent: TObject);
 begin
   FParent:=aParent;
-  FCS:=TCriticalSection.Create;
-//  Priority:=tpHigher;
 
   if assignpipe(FPipeOutput, FPipeInput)<>0 then
     dolog(llError, 'Could not create pipes for epoll worker thread!');
@@ -732,38 +666,49 @@ destructor TEpollWorkerThread.Destroy;
 var
   i: Integer;
 begin
-  for i:=0 to FNewSocketCount-1 do
+  for i:=0 to FSocketCount-1 do
     FSockets[i].Free;
-  FNewSocketCount:=0;
-  Setlength(FSockets, 0);
-  FCS.Destroy;
+  FSocketCount:=0;
+//  FCS.Destroy;
   inherited Destroy;
 end;
 
-procedure TEpollWorkerThread.Callback(Method: TEPollCallbackProc);
+function TEpollWorkerThread.Callback(Method: TEPollCallbackProc): Boolean;
 begin
-  if FpWrite(FPipeInput, Method, sizeof(Method)) <> Sizeof(Method) then
-    dolog(llError, 'Error firing epollthead callback');
+  result:=FpWrite(FPipeInput, Method, sizeof(Method)) = Sizeof(Method);
 end;
 
 function TEpollWorkerThread.AddSocket(Sock: TEPollSocket): Boolean;
+var
+  event: epoll_event;
 begin
-  inc(FTotalCount);
-  result:=True;
-  FCS.Enter;
-  try
-    if FNewSocketCount>=NewSocketBufferSize then
-    begin
-      dolog(llError, sock.GetPeerName+': Could not add socket to thread!');
-      result:=False;
-    end else
-    begin
-      FNewSockets[FNewSocketCount]:=Sock;
-      Inc(FNewSocketCount);
-      FUpdated:=True;
-    end;
-  finally
-    FCS.Leave;
+  if FSocketCount>=MaxConnectionsPerThread then
+  begin
+    result:=False;
+    Exit;
+  end;
+
+  Inc(FTotalCount);
+  FSockets[FSocketCount]:=Sock;
+  {$IFDEF OPENSSL_SUPPORT}
+  if Sock.WantSSL then
+  begin
+    Sock.StartSSL;
+    Sock.WantSSL:=False;
+  end;
+  {$ENDIF}
+
+  event.Events:=EPOLLIN;
+  event.Data.ptr:=Sock;
+
+  if epoll_ctl(epollfd, EPOLL_CTL_ADD, Sock.Socket, @event)<0 then
+  begin
+    dolog(llDebug, 'epoll_ctl_add failed, error #'+IntTostr(fpgeterrno)+' '+IntToStr(Sock.FSocket));
+    result:=False;
+  end else
+  begin
+    Inc(FSocketCount);
+    result:=True;
   end;
 end;
 
