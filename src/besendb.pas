@@ -13,12 +13,16 @@ uses
   epollsockets,
   db,
   sqldb,
-  mysql57dyn,
+  oracleconnection,
+  pqconnection,
+  sqlite3conn,
+  mssqlconn,
   mysql57conn,
+  mysql57dyn,
   BufDataset;
 
 type
-  TDatabaseType = (dtMySql, dtMSSql);
+  TDatabaseType = (dtMySql, dtMsSql, dtOracle, dtPostgres, dtSqlite);
   TDatabaseConnectionState = (dcUninitialized, dcInitialized, dcConnected, dcQuery, dcPrepare, dcPrepareExecute);
   TDatabaseErrorEvent = procedure(ErrorMsg: ansistring) of object;
   TBESENDatabaseConnection = class;
@@ -36,9 +40,11 @@ type
 
     function GetFieldCount: Integer;
     function GetFields: TFields;
+    function GetLogging: Boolean;
     function GetRecordCount: Integer;
     function GetRowsAffected: Integer;
     procedure LogEvent(Sender : TSQLConnection; EventType : TDBEventType; Const Msg : String);
+    procedure SetLogging(AValue: Boolean);
     procedure UpdateErrorEvent(Sender: TObject; DataSet: TCustomBufDataset; E: EUpdateError;
     UpdateKind: TUpdateKind; var Response: TResolverResponse);
     procedure CalcFieldsEvent(DataSet: TDataSet);
@@ -70,6 +76,7 @@ type
     property RecordCount: Integer read GetRecordCount;
     property RowsAffected: Integer read GetRowsAffected;
     property onError: TDatabaseErrorEvent read FOnError write FOnError;
+    property logging: Boolean read GetLogging write SetLogging;
   end;
 
   { TBESENDatabaseThread }
@@ -262,11 +269,19 @@ begin
   FConnection:=TDatabaseConnection.Create;
 
   AType:=BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^));
+
   if AType = 'mysql' then
-  begin
-    FConnection.Initialize(dtMySql);
-  end else
-  raise EBESENError.Create('Unknown Database type');
+    FConnection.Initialize(dtMySql)
+  else if AType = 'mssql' then
+    FConnection.Initialize(dtMsSql)
+  else if AType = 'oracle' then
+    FConnection.Initialize(dtOracle)
+  else if AType = 'postgres' then
+    FConnection.Initialize(dtPostgres)
+  else if AType = 'sqlite' then
+    FConnection.Initialize(dtSqlite)
+  else
+    raise EBESENError.Create('Unknown Database type');
 
   if Assigned(FWorkThread) then
   begin
@@ -725,7 +740,16 @@ end;
 procedure TDatabaseConnection.LogEvent(Sender: TSQLConnection;
   EventType: TDBEventType; const Msg: String);
 begin
-  // dolog(llDebug, 'db: '+ msg);
+  dolog(llDebug, 'db: '+ msg);
+end;
+
+procedure TDatabaseConnection.SetLogging(AValue: Boolean);
+begin
+  if Assigned(FConnection) then
+  if (not AValue) then
+    FConnection.OnLog:=nil
+  else
+    FConnection.OnLog:=LogEvent;
 end;
 
 function TDatabaseConnection.GetRowsAffected: Integer;
@@ -752,6 +776,14 @@ begin
     result:=FQuery.Fields
   else
     result:=nil;
+end;
+
+function TDatabaseConnection.GetLogging: Boolean;
+begin
+  if Assigned(FConnection) then
+    result:=Assigned(FConnection.OnLog)
+  else
+    result:=False;
 end;
 
 function TDatabaseConnection.GetRecordCount: Integer;
@@ -870,6 +902,22 @@ begin
         MySQLWorkAround:=True;
       end;
       {$endif}
+    end;
+    dtOracle:
+    begin
+      FConnection:=TOracleConnection.Create(nil);
+    end;
+    dtMsSql:
+    begin
+      FConnection:=TMSSQLConnection.Create(nil);
+    end;
+    dtPostgres:
+    begin
+      FConnection:=TPQConnection.Create(nil);
+    end;
+    dtSqlite:
+    begin
+      FConnection:=TSQLite3Connection.Create(nil);
     end;
   end;
   FQuery:=TSQLQuery.Create(nil);
