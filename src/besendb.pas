@@ -925,7 +925,7 @@ begin
   FConnection.Transaction:=FTransaction;
   FQuery.Transaction:=FTransaction;
 
-  FConnection.OnLog:=LogEvent;
+  FConnection.OnLog:=nil;
   FQuery.OnUpdateError:=UpdateErrorEvent;
   FQuery.OnCalcFields:=CalcFieldsEvent;
   FQuery.OnDeleteError:=DeleteErrorEvent;
