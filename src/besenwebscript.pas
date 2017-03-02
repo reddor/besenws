@@ -69,6 +69,8 @@ type
     procedure writeFile(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { getPostData(field) - returns the postdata for the specified field }
     procedure getPostData(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { import(file) - same as <?import file ?> }
+    procedure import(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { remote client ip }
     property host: string read GetHostname;
     { the mime type for the response. usually "text/html" }
@@ -90,6 +92,7 @@ type
     FResultCode: TBESENString;
     FSite: TWebserverSite;
     FPath: ansistring;
+    FClient: THTTPConnection;
 
   public
     constructor Create(Manager: TWebserverSiteManager; Site: TWebserverSite);
@@ -263,6 +266,14 @@ begin
   end;
 end;
 
+procedure TBESENWebscriptHandler.import(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+begin
+  if CountArguments>0 then
+    FParent.Execute(FParent.FPath, BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), FParent.FClient);
+end;
+
 { TBESENWebscript }
 
 constructor TBESENWebscript.Create(Manager: TWebserverSiteManager;
@@ -301,6 +312,7 @@ var
 begin
   result:=False;
 
+  FClient:=Client;
   FPath:=Path;
 
   gzip:=False;
