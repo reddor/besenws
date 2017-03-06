@@ -88,7 +88,7 @@ type
     FLastPing: longint;
     function GotCompleteRequest: Boolean;
   protected
-    procedure ProcessData(const data: ansistring); override;
+    procedure ProcessData(const Buffer: Pointer; BufferLength: Integer); override;
     procedure ProcessRequest;
     procedure ProcessWebsocket;
     procedure SendReply;
@@ -794,7 +794,7 @@ begin
 
   FPingIdleTime:=15; // seconds until ping is sent
   FMaxPongTime:=15; // seconds until connection is closed with no pong reply
-
+  FInBuffer:='';
   FServer:=Server;
 end;
 
@@ -917,7 +917,8 @@ begin
   end;
 end;
 
-procedure THTTPConnection.ProcessData(const data: ansistring);
+procedure THTTPConnection.ProcessData(const Buffer: Pointer;
+  BufferLength: Integer);
 var
   i, j: Integer;
   s: ansistring;
@@ -925,7 +926,10 @@ var
 
 begin
   FIdletime:=0;
-  FInBuffer:=FInBuffer+Data;
+  i:=Length(FInBuffer);
+  Setlength(FInBuffer, i + BufferLength);
+  Move(Buffer^, FInBuffer[i+1], BufferLength);
+  //FInBuffer:=FInBuffer+Data;
 
   case FVersion of
     wvNone:

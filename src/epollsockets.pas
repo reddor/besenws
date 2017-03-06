@@ -70,13 +70,15 @@ type
     procedure AddCallback;
   protected
     { process incoming data - called by worker thread, has to be overridden }
-    procedure ProcessData(const Data: ansistring); virtual; abstract;
+    procedure ProcessData(const Data: ansistring); overload; virtual;
+    { if this function is overriden, the other ProcessData(string) function won't be called unless inherited form is called }
+    procedure ProcessData(const Buffer: Pointer; BufferLength: Integer); overload; virtual;
     { send data - if flush is true, data will be immediately written to the
       socket, or stored until FlushSendbuffer is called }
     procedure SendRaw(const Data: ansistring; Flush: Boolean = True);
     { reads up to Length(Data) bytes from socket - called by worker thread.
       'Data' acts as a temporary buffer }
-    function ReadData(var Data: ansistring): Boolean;
+    function ReadData(const Buffer: Pointer; BufferLength: Integer): Boolean;
     { flush data that needs to be written to the socket - can be called manually,
       but is also called from worker thread (e.g. when not all data can be sent
       in one pass) }
@@ -175,6 +177,8 @@ const
   EpollWaitTime = 100;
   { ticks until CheckTimeout function is called }
   ClientTickInterval = 1000 div EpollWaitTime;
+  { Internal buffer size for a single read() call }
+  InternalBufferSize = 65536;
 
 { TEPollSocket }
 
@@ -239,6 +243,22 @@ begin
   end;
 end;
 
+procedure TEPollSocket.ProcessData(const Data: ansistring);
+begin
+
+end;
+
+procedure TEPollSocket.ProcessData(const Buffer: Pointer; BufferLength: Integer
+  );
+var
+  Temp: ansistring;
+begin
+  Setlength(Temp,BufferLength);
+  Move(Buffer^, Temp[1], BufferLength);
+  ProcessData(Temp);
+  Temp:='';
+end;
+
 {$ENDIF}
 
 procedure TEPollSocket.SendRaw(const Data: ansistring; Flush: Boolean);
@@ -256,35 +276,32 @@ begin
     FlushSendbuffer;
 end;
 
-function TEPollSocket.ReadData(var Data: ansistring): Boolean;
+function TEPollSocket.ReadData(const Buffer: Pointer; BufferLength: Integer
+  ): Boolean;
 var
-  k, err: Integer;
-  data2: ansistring;
+  bufferRead, err: Integer;
 begin
 {$IFDEF OPENSSL_SUPPORT}
   if FIsSSL then
   begin
-    k:=SslRead(FSSL, @Data[1], Length(Data));
-    if k<=0 then
+    bufferRead:=SslRead(FSSL, Buffer, BufferLength);
+    if bufferRead<=0 then
     begin
       result:=False;
-      CheckSSLError(k);
+      CheckSSLError(bufferRead);
     end else
     begin
-      data2:=data;
-      Setlength(data2, k);
-      ProcessData(data2);
-      data2:='';
+      ProcessData(Buffer, bufferRead);
       result:=True;
     end;
     Exit;
   end;
 {$ENDIF}
 
-  k := fprecv(FSocket, @data[1], Length(data), MSG_DONTWAIT or MSG_NOSIGNAL);
-  if k<=0 then
+  bufferRead := fprecv(FSocket, Buffer,BufferLength, MSG_DONTWAIT or MSG_NOSIGNAL);
+  if bufferRead<=0 then
   begin
-    if k<0 then
+    if bufferRead<0 then
     begin
       err:=fpgeterrno;
       case err of
@@ -315,10 +332,7 @@ begin
     end;
   end else
   begin
-    data2:=data;
-    Setlength(data2, k);
-    ProcessData(data2);
-    data2:='';
+    ProcessData(Buffer, bufferRead);
     result:=True;
   end;
 end;
@@ -537,7 +551,7 @@ end;
 procedure TEpollWorkerThread.Execute;
 var
   i, j: Integer;
-  data: ansistring;
+  data: Pointer;
   conn: TEPollSocket;
   Callback: TEPollCallbackProc;
   event: epoll_event;
@@ -554,7 +568,7 @@ begin
     dolog(llError, 'epoll_ctl_add pipe failed, error #'+IntTostr(fpgeterrno)+' ');
   end;
 
-  Setlength(data, 64*1024); // temporary buffer
+  GetMem(Data, InternalBufferSize);
 
   while (not Terminated) do
   begin
@@ -579,7 +593,7 @@ begin
       end else
       if (FEpollEvents[j].Events and EPOLLIN<>0) then
       begin
-        conn.ReadData(Data);
+        conn.ReadData(Data, InternalBufferSize);
       end else if (FEpollEvents[j].Events and EPOLLOUT<>0) then
       begin
         conn.FlushSendbuffer;
@@ -606,6 +620,7 @@ begin
     RemoveSocket(FSockets[j]);
     Dec(j);
   end;
+  FreeMem(data);
 end;
 
 procedure TEpollWorkerThread.RemoveSocket(Sock: TEPollSocket;
