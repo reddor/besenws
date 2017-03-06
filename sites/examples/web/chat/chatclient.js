@@ -60,7 +60,7 @@ function doConnect() {
   
   auth = false;
   var url = ((location.protocol == "https") ? "wss" : "ws") + '//'+location.hostname+(location.port ? ':'+location.port: '') + "/chat";
-  url = "ws://127.0.0.1:18080/chat";
+  
   try {
     socket = new WebSocket(url);
     socket.onopen = function() {
