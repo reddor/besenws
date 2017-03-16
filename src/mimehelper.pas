@@ -78,7 +78,15 @@ begin
          a:=trim(Copy(s, 1, i));
          b:=trim(Copy(s, i+1, length(s)));
          if (a<>'')and(b<>'') then
+         begin
+           while pos(' ', b)>0 do
+           begin
+             s:=Trim(copy(b, 1, pos(' ', b)));
+             Delete(b, 1, Length(s)+1);
+             MimeTypes[s]:=a;
+           end;
            MimeTypes[lowercase(b)]:=a;
+         end;
        end;
     end;
 
