@@ -82,6 +82,7 @@ type
     property TotalFileSize: Longword read FFileSize;
     property TotalGZipFileSize: Longword read FGZipFileSize;
     property TotalFileCount: Longword read FFileCount;
+    property BaseDir: ansistring read FBaseDir;
   end;
 
 implementation
