@@ -22,8 +22,7 @@ unit httphelper;
 interface
 
 uses
-  SysUtils,
-  blcksock;
+  SysUtils;
 
 type
   { THTTPRequestFields }
@@ -38,6 +37,7 @@ type
     function Find(const Name: ansistring): ansistring;
     procedure SetHeader(const index: ansistring; AValue: ansistring);
   public
+    constructor Create;
     destructor Destroy; override;
     procedure Add(const Name, Value: ansistring);
     procedure Clear;
@@ -72,8 +72,6 @@ type
     destructor Destroy; override;
     { read from string }
     function readstr(var str: ansistring): Boolean;
-    { read directly from socket }
-    function read(sock: TTCPBlockSocket): Boolean;
     function GetCookies(aTimeout: ansistring = ''): ansistring;
     property POSTData: THTTPPostData read FPostData;
     property action: ansistring read FAction;
@@ -92,18 +90,15 @@ type
   private
     FRequest: THTTPRequest;
     FEntities: THTTPRequestFields;
-    FPostData: string;
   public
     constructor Create(Request: THTTPRequest);
     destructor Destroy; override;
-
     procedure Clear;
-
     function readstr(var str: ansistring): Boolean;
-    function read(sock: TTCPBlockSocket): Boolean;
     property Entities: THTTPRequestFields read FEntities write FEntities;
-    property Data: string read FPostData;
   end;
+
+  { THTTPReply }
 
   THTTPReply = class
   private
@@ -568,7 +563,9 @@ begin
     Exit;
   end;
 
-  setlength(FRequests, FCount + 1);
+  if Length(FRequests)<=FCount then
+    setlength(FRequests, FCount + 16);
+
   FRequests[FCount].Name := Name;
   FRequests[FCount].Value := Value;
   Inc(FCount);
@@ -577,7 +574,7 @@ end;
 procedure THTTPRequestFields.Clear;
 begin
   FCount := 0;
-  SetLength(FRequests, 0);
+  SetLength(FRequests, 16);
 end;
 
 function THTTPRequestFields.Find(const Name: ansistring): ansistring;
@@ -598,6 +595,11 @@ procedure THTTPRequestFields.SetHeader(const index: ansistring;
   AValue: ansistring);
 begin
   Add(Index, AValue);
+end;
+
+constructor THTTPRequestFields.Create;
+begin
+  Clear;
 end;
 
 destructor THTTPRequestFields.Destroy;
@@ -820,85 +822,6 @@ begin
   end;
 end;
 
-function THTTPRequest.read(sock: TTCPBlockSocket): Boolean;
-var
-  s: string;
-  i: Integer;
-begin
-  result := False;
-  Setlength(FRangeSegments, 0);
-
-  FPostData.Clear;
-
-  sock.ResetLastError;
-  s := string(sock.RecvTerminated(30000, #13#10));
-
-  Faction := Copy(s, 1, pos(' ', s)-1);
-  Delete(s, 1, pos(' ', s));
-
-  FURL := Copy(s, 1, pos(' ', s)-1);
-  if Pos('?', FURL)>0 then
-  begin
-    FParameters := Copy(FURL, Pos('?', FURL)+1, length(FURL));
-    Delete(FURL, pos('?', FURL), Length(FURL));
-  end else
-    FParameters := '';
-
-  FVersion := Copy(s, pos(' ', s)+1, Length(s));
-
-  FHeader.Clear;
-
-  if (FVersion = 'HTTP/1.0') or (FVersion = 'HTTP/1.1') then
-  begin
-    // we dont know any other version, this looks like a legit http header
-
-    // read all the request fields
-    repeat
-      s := sock.RecvTerminated(10000, #13#10);
-      if pos(': ', s)>0 then
-      begin
-        FHeader.Add(Copy(s, 1, Pos(': ', s)-1), Copy(s, pos(': ', s)+2, length(s)));
-
-      end else
-        Break;
-
-    until s = ''; // blank line => header done (or client disconnect / invalid header )
-    FPostData.Read(sock);
-
-    result := s = '';
-
-    if FHeader.Exists('Range')<>-1 then
-    try
-      s := FHeader['Range'];
-      if pos('BYTES', Uppercase(s))=1 then
-      begin
-        if pos('=', s)>pos(' ', s) then
-          Delete(s, 1, pos('=', s))
-        else
-          Delete(s, 1, pos(' ', s));
-
-        repeat
-          i := Length(FRangeSegments);
-          setlength(FRangeSegments, i + 1);
-          FRangeSegments[i].min := StrToInt(Copy(s, 1, pos('-', s)-1));
-          Delete(s, 1, pos('-', s));
-          if pos(',', s)>0 then
-          begin
-            FRangeSegments[i].max := StrToInt(Copy(s, 1, pos(',', s)-1));
-            Delete(s, 1, pos(',', s));
-          end else
-          begin
-            FRangeSegments[i].max := StrToInt(s);
-            Break;
-          end;
-        until s = '';
-      end;
-    except
-      Setlength(FRangeSegments, 0);
-    end;
-  end;
-end;
-
 function THTTPRequest.GetCookies(aTimeout: ansistring): ansistring;
 var i: Integer;
     name, val: ansistring;
@@ -921,15 +844,39 @@ end;
 
 function THTTPReply.Build(Response: ansistring): ansistring;
 var
-  i: Integer;
+  i, Len: Integer;
+
+procedure AddStr(const str: ansistring);
+var
+  l: Integer;
 begin
-  result := FVersion + ' ' + Response + #13#10;
-  for i:=0 to FHeader.Count-1 do
-    result := Result + FHeader.FRequests[i].Name+': '+FHeader.FRequests[i].Value + #13#10;
-    result := result + #13#10;
+  l:=Length(str);
+  Move(str[1], result[Len], l);
+  Inc(Len, l);
 end;
 
-procedure THTTPReply.Clear;
+begin
+  Len:=Length(FVersion) + Length(Response) + 5;
+
+  for i:=0 to FHeader.Count-1 do
+    Len:=Len + Length(FHeader.FRequests[i].Name) + Length(FHeader.FRequests[i].Value) + 4;
+  Setlength(Result, Len);
+  Len:=1;
+  AddStr(FVersion);
+  AddStr(' ');
+  AddStr(Response);
+  AddStr(#13#10);
+  for i:=0 to FHeader.Count-1 do
+  begin
+    AddStr(FHeader.FRequests[i].Name);
+    AddStr(': ');
+    AddStr(FHeader.FRequests[i].Value);
+    AddStr(#13#10);
+  end;
+  AddStr(#13#10);
+end;
+
+procedure THTTPReply.Clear(Version: ansistring);
 begin
   FHeader.Clear;
   FVersion := Version;  
@@ -951,7 +898,6 @@ end;
 
 procedure THTTPPostData.Clear;
 begin
-  FPostData:='';
   FEntities.Clear;
 end;
 
@@ -1034,70 +980,6 @@ begin
   FEntities.Clear;
   FEntities.Free;
   inherited;
-end;
-
-function THTTPPostData.read(sock: TTCPBlockSocket): Boolean;
-var
-  len: Integer;
-  s, s2, boundary, dataname, filename: string;
-begin
-  result:=False;
-  if FRequest.action = 'POST' then
-  begin
-    len := StrToIntDef(FRequest.header['Content-Length'], 0);
-    s := FRequest.header['Content-Type'];
-    if pos('multipart/form-data;', s)=1 then
-    begin
-      boundary := '--' + Copy(s, pos('boundary=', s) + 9, length(s));
-      s := sock.RecvTerminated(10000, #13#10);
-      len := len - (length(s) + 2);
-      if s = boundary then
-      repeat
-        s := sock.RecvTerminated(10000, #13#10);
-        Len := Len - (Length(s) + 2);
-
-        repeat
-          s2 := sock.RecvTerminated(10000, #13#10);
-          Len := Len - (Length(s2) + 2);
-        until s2 = '';
-
-        if s2 ='' then
-        begin
-          filename := GetElementFromString(s, 'filename');
-          dataname := GetElementFromString(s, 'name');
-          if filename <> '' then
-          begin
-            repeat
-              s := sock.RecvTerminated(10000, #13#10);
-              Len := Len - (length(s) + 2);
-            until s = boundary;
-          end else
-          begin
-            s2 := '';
-            repeat
-              s := sock.RecvTerminated(10000, #13#10);
-              Len := Len - (length(s) + 2);
-              if (s <> boundary) and (s <> boundary + '--') then
-                if s2 <> '' then
-                  s2 := s2 + #13#10 + s
-                else
-                  s2 := s;
-            until pos(boundary, s)=1;
-            FEntities.Add(dataname, s2);
-          end;
-        end else Break;
-      until (len <=0) or (s2 = boundary + '--');
-
-    end else if s = 'application/x-www-form-urlencoded' then
-    begin
-      FPostData := sock.RecvBufferStr(len, 10000);
-
-    end else if s = 'text/plain' then
-    begin
-      FPostData := sock.RecvBufferStr(len, 10000);
-    end;
-
-  end;
 end;
 
 end.
