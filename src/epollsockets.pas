@@ -39,6 +39,8 @@ uses
 const
   { maximum concurrent connections per thread }
   MaxConnectionsPerThread = 40000;
+  { maxim number of epoll events that can be handled concurrently}
+  MaxEpollEventsPerThread = 10000;
 
 type
   TEPollSocket = class;
@@ -73,9 +75,6 @@ type
     procedure ProcessData(const Data: ansistring); overload; virtual;
     { if this function is overriden, the other ProcessData(string) function won't be called unless inherited form is called }
     procedure ProcessData(const Buffer: Pointer; BufferLength: Integer); overload; virtual;
-    { send data - if flush is true, data will be immediately written to the
-      socket, or stored until FlushSendbuffer is called }
-    procedure SendRaw(const Data: ansistring; Flush: Boolean = True);
     { reads up to Length(Data) bytes from socket - called by worker thread.
       'Data' acts as a temporary buffer }
     function ReadData(const Buffer: Pointer; BufferLength: Integer): Boolean;
@@ -111,6 +110,9 @@ type
     function GetPeerName: string;
     { returns ip }
     function GetRemoteIP: string;
+    { send data - if flush is true, data will be immediately written to the
+      socket, or stored until FlushSendbuffer is called }
+    procedure SendRaw(const Data: ansistring; Flush: Boolean = True);
 {$IFDEF OPENSSL_SUPPORT}
     { performs ssl handshake }
     procedure StartSSL;
@@ -133,14 +135,31 @@ type
 {$ENDIF}
   end;
 
+  { TCustomEpollHandle }
+
+  TCustomEpollHandler = class
+  private
+    FParent: TEpollWorkerThread;
+    FHandles: array of THandle;
+  protected
+    procedure AddHandle(Handle: THandle);
+    procedure RemoveHandle(Handle: THandle);
+    procedure DataReady(Event: epoll_event); virtual; abstract;
+  public
+    constructor Create(AParent: TEpollWorkerThread);
+    destructor Destroy; override;
+  end;
+
   { TEpollWorkerThread }
 
   TEpollWorkerThread = class(TThread)
   private
     FEpollFD: integer;
     FSocketCount: Integer;
-    FEpollEvents: array[0..MaxConnectionsPerThread] of epoll_event;
     FSockets: array[0..MaxConnectionsPerThread-1] of TEPollSocket;
+    FSocketFreeQueuePos: Integer;
+    FSocketFreeQueue: array[0..MaxEpollEventsPerThread-1] of TEpollSocket;
+    FEpollEvents: array[0..MaxEpollEventsPerThread-1] of epoll_event;
     FParent: TObject;
     FTicks: Integer;
     FTotalCount: Integer;
@@ -151,6 +170,8 @@ type
   protected
     { called inbetween epoll, checks for client timeouts }
     procedure ThreadTick; virtual;
+    { }
+    procedure Initialize; virtual;
     { overriden thread function }
     procedure Execute; override;
     { add socket - this is called from TEPollSocket-relocate within this thread }
@@ -179,6 +200,59 @@ const
   ClientTickInterval = 1000 div EpollWaitTime;
   { Internal buffer size for a single read() call }
   InternalBufferSize = 65536;
+
+{ TCustomEpollHandler }
+
+procedure TCustomEpollHandler.AddHandle(Handle: THandle);
+var
+  i: Integer;
+  event: epoll_event;
+begin
+  for i:=0 to Length(FHandles)-1 do
+    if FHandles[i] = Handle then
+      Exit;
+
+  event.Events:=EPOLLIN or EPOLLET or EPOLLHUP;
+  event.Data.ptr:=Self;
+
+  if epoll_ctl(FParent.epollfd, EPOLL_CTL_ADD, Handle, @event)<0 then
+  begin
+    dolog(llDebug, 'epoll_ctl_add failed, error #'+IntTostr(fpgeterrno)+' '+IntToStr(Handle));
+  end else
+  begin
+    i:=Length(FHandles);
+    Setlength(FHandles, i+1);
+    FHandles[i]:=Handle;
+  end;
+end;
+
+procedure TCustomEpollHandler.RemoveHandle(Handle: THandle);
+var
+  i: Integer;
+begin
+  for i:=0 to Length(FHandles)-1 do
+    if FHandles[i] = Handle then
+    begin
+      FHandles[i]:=FHandles[Length(FHandles)-1];
+      Setlength(FHandles, Length(FHandles)-1);
+      if epoll_ctl(FParent.epollfd, EPOLL_CTL_DEL, Handle, nil)<0 then
+        dolog(llError, 'Custom epoll_ctl_del failed #'+IntToStr(fpgeterrno)+' '+IntToStr(Handle));
+      Exit;
+    end;
+end;
+
+constructor TCustomEpollHandler.Create(AParent: TEpollWorkerThread);
+begin
+  FParent:=AParent;
+end;
+
+destructor TCustomEpollHandler.Destroy;
+begin
+  while Length(FHandles)>0 do
+    RemoveHandle(FHandles[Length(FHandles)-1]);
+
+  inherited Destroy;
+end;
 
 { TEPollSocket }
 
@@ -308,13 +382,13 @@ begin
         ESysEWOULDBLOCK: result:=True;
         ESysECONNRESET:
         begin
-          dolog(llDebug, GetPeerName+': Connection reset');
+          //dolog(llDebug, GetPeerName+': Connection reset');
           result:=False;
           FWantClose:=True;
         end;
         ESysETIMEDOUT:
         begin
-          dolog(llDebug, GetPeerName+': Connection timeout');
+          //dolog(llDebug, GetPeerName+': Connection timeout');
           result:=False;
           FWantClose:=True;
         end;
@@ -327,8 +401,12 @@ begin
       end;
     end else
     begin
-      result:=False; // connection closed
+      // connection closed
+      result:=False;
       FWantClose:=True;
+      // discard any buffer that is left to send
+      FOutbuffer:='';
+      FOutbuffer2:='';
     end;
   end else
   begin
@@ -480,7 +558,7 @@ var
 begin
   if FIsSSL then
     Exit;
-  GetPeerName;
+  //GetPeerName;
   fssl := SslNew(FSSLContext);
   if Assigned(fssl) then
   begin
@@ -570,9 +648,13 @@ begin
 
   GetMem(Data, InternalBufferSize);
 
+  Initialize;
+
   while (not Terminated) do
   begin
-    i := epoll_wait(epollfd, @FEpollEvents[0], FSocketCount+1, EpollWaitTime);
+    FSocketFreeQueuePos:=0;
+
+    i := epoll_wait(epollfd, @FEpollEvents[0], MaxEpollEventsPerThread, EpollWaitTime);
     for j:=0 to i-1 do
     if FEpollEvents[j].Data.fd = FPipeOutput then
     begin
@@ -583,7 +665,13 @@ begin
       end else
         dolog(llError, 'Error reading epollworkerthread callback');
     end else
-    if Assigned((FEpollEvents[j].data.ptr)) then
+    if not Assigned((FEpollEvents[j].data.ptr)) then
+    begin
+      dolog(llDebug, 'Epoll event without handler received');
+    end else
+    if TObject(FEPollEvents[j].data.ptr) is TCustomEpollHandler then
+      TCustomEpollHandler(FEPollEvents[j].data.ptr).DataReady(FEpollEvents[j])
+    else
     begin
       conn:=TEPollSocket(FEpollEvents[j].data.ptr);
 
@@ -609,9 +697,12 @@ begin
 
       if (conn.FParent = Self) and (conn.WantClose) then
       begin
-        RemoveSocket(conn);
+        FSocketFreeQueue[FSocketFreeQueuePos]:=conn;
+        Inc(FSocketFreeQueuePos);
       end;
     end;
+    for i:=0 to FSocketFreeQueuePos-1 do
+      RemoveSocket(FSocketFreeQueue[i]);
     ThreadTick;
   end;
   j:=High(FSockets);
@@ -667,6 +758,11 @@ begin
   end;
 end;
 
+procedure TEpollWorkerThread.Initialize;
+begin
+
+end;
+
 constructor TEpollWorkerThread.Create(aParent: TObject);
 begin
   FParent:=aParent;
@@ -683,8 +779,8 @@ var
 begin
   for i:=0 to FSocketCount-1 do
     FSockets[i].Free;
+
   FSocketCount:=0;
-//  FCS.Destroy;
   inherited Destroy;
 end;
 
