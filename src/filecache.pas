@@ -71,6 +71,7 @@ type
     procedure ProcessTick;
     procedure DoScan(const Dir, BaseDir: ansistring);
     procedure AddSymlink(source, dest: ansistring);
+    function FindPathUrl(var target, PathUrl: ansistring): PFileCacheItem;
     function Exists(target: ansistring): Boolean;
     function Find(target: ansistring): PFileCacheItem;
     function Release(Item: PFileCacheItem): Boolean;
@@ -401,6 +402,26 @@ begin
   finally
     FCS.Leave;
   end;
+end;
+
+function TFileCache.FindPathUrl(var target, PathUrl: ansistring
+  ): PFileCacheItem;
+var
+  i: Integer;
+begin
+  PathUrl:='';
+  repeat
+    result:=Find(target);
+    if not Assigned(result) then
+    begin
+      i:=Length(target);
+      while (i>1)and(target[i]<>'/') do
+        Dec(i);
+      PathUrl:=Copy(target, i, Length(target))+PathUrl;
+      Delete(target, i, Length(Target));
+    end else
+      Break;
+  until Length(target)<=1;
 end;
 
 function TFileCache.Exists(target: ansistring): Boolean;
