@@ -127,6 +127,7 @@ procedure GetHTTPStatusCode(ErrorCode: Word; out Title, Description: ansistring)
 implementation
 
 uses
+  Math,
   DateUtils;
 
 const
@@ -681,21 +682,18 @@ begin
   FPostData.Clear;
   FCookies.Clear;
 
-  if Length(str)>4 then
-  if (str[1]='G')and(str[2]='E')and(str[3]='T') then
-  begin
-    FAction:='GET';
-    i:=4;
-  end else if (str[1]='P')and(str[2]='O')and(str[3]='S')and(str[4]='T') then
-  begin
-     FAction:='POST';
-     i:=5;
-  end else if (str[1]='H')and(str[2]='E')and(str[3]='A')and(str[4]='D') then
-  begin
-     FAction:='HEAD';
-     i:=5;
-  end else
+  j:=-1;
+  for i:=1 to Min(10, Length(str)) do
+    if str[i] = ' ' then
+    begin
+     j:=i;
+     Break;
+    end;
+  if j=-1 then
     Exit;
+
+  FAction:=Copy(str, 1, j-1);
+  i:=j;
 
   result:=True;
 
