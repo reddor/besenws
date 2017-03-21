@@ -39,8 +39,22 @@ const
 
 type
   TWebserverSiteManager = class;
+  TWebserverSite = class;
 
-  //TObjectIteratorMethod
+  { TFileCachingThread }
+
+  TFileCachingThread = class(TThread)
+  private
+    FCS: TCriticalSection;
+    FItems: array of TWebserverSite;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure QueueScan(Site: TWebserverSite);
+  end;
+
   { TWebserverSite }
 
   TWebserverSite = class
@@ -98,6 +112,7 @@ type
     FPath: ansistring;
     FSharedScripts: TFileCache;
     FSharedScriptsDir: ansiString;
+    FCacheThread: TFileCachingThread;
     function GetTotalFileCount: longword;
     function GetTotalFileSize: longword;
     function GetTotalGZipFileSize: longword;
@@ -153,6 +168,66 @@ begin
       dolog(llError, aFilename+': Could not write to disk!');
     Closefile(f);
   end;
+end;
+
+{ TFileCachingThread }
+
+procedure TFileCachingThread.Execute;
+var
+  s: TWebserverSite;
+  Done: Boolean;
+begin
+  Done:=True;
+
+  while not Terminated do
+  begin
+    FCS.Enter;
+    if Length(FItems)>0 then
+    begin
+      s:=FItems[Length(FItems)-1];
+      Setlength(Fitems, Length(FItems)-1);
+      Done:=False;
+    end else
+      s:=nil;
+    FCS.Leave;
+    if Assigned(s) then
+      s.Files.DoScan(s.Path+'web','/')
+    else begin
+      if not Done then
+      begin
+        dolog(llNotice, IntToStr(ServerManager.Server.Sitemanager.TotalFileCount)+' files cached with '+
+                        IntToFilesize(ServerManager.Server.Sitemanager.TotalFileSize)+'(+ '+
+                        IntToFilesize(ServerManager.Server.Sitemanager.TotalGZipFileSize)+' compressed)');
+        Done:=True;
+      end;
+      Sleep(50);
+    end;
+  end;
+end;
+
+constructor TFileCachingThread.Create;
+begin
+  FCS:=TCriticalSection.Create;
+  inherited Create(False);
+end;
+
+destructor TFileCachingThread.Destroy;
+begin
+  Terminate;
+  WaitFor;
+  FCS.Leave;
+  inherited Destroy;
+end;
+
+procedure TFileCachingThread.QueueScan(Site: TWebserverSite);
+var
+  i: Integer;
+begin
+  FCS.Enter;
+  i:=Length(FItems);
+  Setlength(FItems, i+1);
+  FItems[i]:=Site;
+  FCS.Leave;
 end;
 
 { TWebserverSite }
@@ -242,7 +317,7 @@ end;
 
 procedure TWebserverSite.Rescan;
 begin
-  FFileCache.DoScan(FPath+'web','/');
+  FParent.FCacheThread.QueueScan(Self);
   // dolog(llDebug, '['+FName+'] Got '+IntTostr(FFileCache.TotalFileCount)+' files with '+IntToFilesize(FFileCache.TotalFileSize)+' total, (compressed: '+IntToFileSize(FFileCache.TotalGZipFileSize)+')');
 end;
 
@@ -437,6 +512,7 @@ begin
   FSharedScripts:=TFileCache.Create;
   FSharedScripts.DoScan(FSharedScriptsDir, '/');
   FDefaultHost:=nil; //TWebserverSite.Create(Self, 'default');
+  FCacheThread:=TFileCachingThread.Create;
   //Setlength(FHosts, 1);
   //FHosts[0]:=FDefaultHost;
 
@@ -455,6 +531,7 @@ begin
   Setlength(FHosts, 0);
   FHostsByName.Free;
   FSharedScripts.Free;
+  FCacheThread.Free;
   inherited Destroy;
 end;
 

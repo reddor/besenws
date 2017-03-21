@@ -32,7 +32,6 @@ uses
     webserver;
 
 type
-
   { TBESENWebserverSite }
 
   TBESENWebserverSite = class(TBESENNativeObject)
