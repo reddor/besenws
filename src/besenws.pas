@@ -41,7 +41,10 @@ uses
   besenwebscript,
   beseninstance,
   epollsockets,
-  besendb;
+  besendb,
+  externalproc,
+  fcgibridge,
+  sslclass;
 
 {$R *.res}
 
@@ -185,24 +188,6 @@ end;
 begin
   Writeln('besen.ws server');
 
-  (*
-  with TDatabaseConnection.Create do
-  begin
-    if Initialize(dtMySql) then
-    begin
-      if connect('127.0.0.1', 'root', 'meister', 'test') then
-      begin
-        Writeln('connected');
-        Query('select * from test');
-        Writeln(RowsAffected, ' ', FieldCount, ' ', RecordCount);
-      end else
-      Writeln('connect fail');
-
-    end else
-      Writeln('could not initialize');
-    Exit;
-  end; *)
-
   isdebug:=False;
   ConfigurationPath:=ExtractFilePath(ParamStr(0));
   CheckParameters;
@@ -245,9 +230,6 @@ begin
     ServerManager:=TWebserverManager.Create(ConfigurationPath);
     ServerManager.Execute(ConfigurationPath+'settings.js');
     dolog(llNotice, 'Loading complete');
-    dolog(llNotice, IntToStr(ServerManager.Server.Sitemanager.TotalFileCount)+' files cached with '+
-                    IntToFilesize(ServerManager.Server.Sitemanager.TotalFileSize)+'(+ '+
-                    IntToFilesize(ServerManager.Server.Sitemanager.TotalGZipFileSize)+' compressed)');
 
     while not shutdown do
     begin

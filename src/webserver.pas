@@ -158,7 +158,7 @@ type
 
   TWebserverWorkerThread = class(TEpollWorkerThread)
   private
-    //FPHP: TwebserverFCGIBridgeProcess;
+
   protected
     procedure Initialize; override;
   end;
