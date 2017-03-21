@@ -39,6 +39,9 @@ uses
   MD5,
   filecache,
   webserverhosts,
+  externalproc,
+  fastcgi,
+  fcgibridge,
 {$IFDEF OPENSSL_SUPPORT}
   ssl_openssl_lib,
 {$ENDIF}
@@ -79,14 +82,20 @@ type
     FVersion: TWebsocketVersion;
     FIdletime: Integer;
     hassegmented: Boolean;
-    target, FWSData: ansistring;
+    target, FWSData, FPathUrl: ansistring;
     FLag: Integer;
     FServer: TWebserver;
     FHost: TWebserverSite;
     FContentLength: Integer;
     FGotHeader: Boolean;
     FLastPing: longint;
+    FCGI: TExternalProc;
+    FCGIPostDataLength: Integer;
     function GotCompleteRequest: Boolean;
+    function IsExternalScript: Boolean;
+    function CreateEnvVars: ansistring;
+    procedure SendCGI(const Data: ansistring);
+    procedure SendCGIPostData;
   protected
     procedure ProcessData(const Buffer: Pointer; BufferLength: Integer); override;
     procedure ProcessRequest;
@@ -143,12 +152,33 @@ type
 {$ENDIF}
   end;
 
+  { TwebserverFCGIBridgeProcess }
+
+  TwebserverFCGIBridgeProcess = class
+  private
+    FItems: array[0..65535] of THTTPConnection;
+    FBridge: TAbstractFastCGIBridge;
+    procedure DataReceived(Header: PFCGI_Header; Data: Pointer; Length: Integer);
+  public
+    constructor Create(Parent: TEpollWorkerThread; ip, port: ansistring);
+    procedure StartCGI(Connection: THTTPConnection);
+  end;
+
+  { TWebserverWorkerThread }
+
+  TWebserverWorkerThread = class(TEpollWorkerThread)
+  private
+    //FPHP: TwebserverFCGIBridgeProcess;
+  protected
+    procedure Initialize; override;
+  end;
+
   { TWebserver }
   TWebserver = class
   private
     FCS: TCriticalSection;
     FWorkerCount: Integer;
-    FWorker: array of TEpollWorkerThread;
+    FWorker: array of TWebserverWorkerThread;
     FSiteManager: TWebserverSiteManager;
     FCachedConnectionCount: Integer;
     FCachedConnections: array[0..ConnectionCacheSize] of THTTPConnection;
@@ -156,7 +186,7 @@ type
     fcurrthread: Integer;
     FTotalRequests: Int64;
   protected
-    procedure AddWorkerThread(AThread: TEpollWorkerThread);
+    procedure AddWorkerThread(AThread: TWebserverWorkerThread);
   public
     constructor Create(const BasePath: ansistring);
     destructor Destroy; override;
@@ -285,6 +315,66 @@ begin
   end;
 end;
 
+{ TWebserverWorkerThread }
+
+procedure TWebserverWorkerThread.Initialize;
+begin
+  inherited Initialize;
+  //FPHP:=TwebserverFCGIBridgeProcess.Create(Self, '127.0.0.1', '9009');
+end;
+
+{ TWebserverWorkerThread }
+
+{ TwebserverFCGIBridgeProcess }
+
+procedure TwebserverFCGIBridgeProcess.DataReceived(Header: PFCGI_Header;
+  Data: Pointer; Length: Integer);
+var
+  conn: THTTPConnection;
+  temp: ansistring;
+begin
+  conn:=FItems[Header^.requestID];
+  if not Assigned(conn) then
+  begin
+    dolog(llError, 'Got FCGI data with invalid id');
+  end;
+
+  case Header^.reqtype of
+    FCGI_STDOUT:
+    begin
+      Setlength(Temp, Length);
+      Move(Data^, temp[1], Length);
+      conn.SendRaw(temp);
+    end;
+    FCGI_END_REQUEST:
+    begin
+      conn.SendRaw(#13#10#13#10);
+    end;
+  end;
+end;
+
+constructor TwebserverFCGIBridgeProcess.Create(Parent: TEpollWorkerThread; ip,
+  port: ansistring);
+begin
+  FBridge:=TFastCGIBridgeSocket.Create(Parent, '127.0.0.1', '9000');
+  //TFastCGIBridgeFile.Create(Parent, '/run/php/php7.0-fpm.sock');
+  //TFastCGIBridge.Create(Parent, sock.Socket);
+  FBridge.OnEvent:=DataReceived;
+end;
+
+procedure TwebserverFCGIBridgeProcess.StartCGI(Connection: THTTPConnection);
+var
+  id: Word;
+begin
+  id:=FBridge.BeginRequest;
+  FItems[id]:=Connection;
+
+
+  FBridge.SetParameters(id, '');
+  //FBridge.SendRequest(FCGI_STDIN, id, nil, 0);
+  FBridge.SendRequest(FCGI_STDIN, id, nil, 0);
+end;
+
 { TWebserverListener }
 
 procedure TWebserverListener.Execute;
@@ -308,7 +398,7 @@ begin
       if canread(500) then
       begin
         ClientSock:=accept;
-        if (LastError = 0)and(ClientSock>0) then
+        if (LastError = 0)and(ClientSock>=0) then
         begin
           x := fpfcntl(ClientSock, F_GETFL, 0);
           if x<0 then
@@ -393,88 +483,89 @@ var
   newtarget: string;
 begin
   try
-  if FGotHeader then
-  begin
-    FGotHeader:=False;
-    FContentLength:=-1;
-
-    FReply.Clear(FHeader.version);
-
-    Freply.header.Add('Server', 'besenws/0.1');
-
-    Freply.header.Add('Date', DateTimeToHTTPTime(Now));
-    fkeepalive := Pos('KEEP-ALIVE', Uppercase(Fheader.header['Connection']))>0;
-    if fkeepalive then
-      Freply.header.Add('Connection', 'keep-alive');
-
-    if (FHeader.version <> 'HTTP/1.0')and(FHeader.version <> 'HTTP/1.1') then
+    if FGotHeader then
     begin
-      // unknown version
-      fkeepalive:=False;
-      SendStatusCode(505);
-      Exit;
-    end;
+      FGotHeader:=False;
+      FContentLength:=-1;
 
-    if (FHeader.version = 'HTTP/1.1') and (FHeader.header['Host']='') then
-    begin
-      // http/1.1 without Host is not allowed
-      fkeepalive:=False;
-      SendStatusCode(400);
-      Exit;
-    end;
+      FReply.Clear(FHeader.version);
 
-    FHost:=FServer.SiteManager.GetSite(FHeader.header['Host']);
+      Freply.header.Add('Server', 'besenws/0.1');
 
-    if not Assigned(FHost) then
-    begin
-      SendStatusCode(500);
-      Exit;
-    end;
+      Freply.header.Add('Date', DateTimeToHTTPTime(Now));
+      fkeepalive := Pos('KEEP-ALIVE', Uppercase(Fheader.header['Connection']))>0;
+      if fkeepalive then
+        Freply.header.Add('Connection', 'keep-alive');
 
-    FHost.ApplyResponseHeader(FReply);
+      if (FHeader.version <> 'HTTP/1.0')and(FHeader.version <> 'HTTP/1.1') then
+      begin
+        // unknown version
+        fkeepalive:=False;
+        SendStatusCode(505);
+        Exit;
+      end;
 
-    if (FHeader.action <> 'GET')and(FHeader.action <> 'HEAD')and(FHeader.action <> 'POST') then
-    begin
-      // method not allowed, this server has no POST implementation
-      fkeepalive:=False;
-      SendStatusCode(405);
-      Exit;
-    end;
-    target := StringReplace(FHeader.url, '/./', '/', [rfReplaceAll]);
-    target := StringReplace(target, '//', '/', [rfReplaceAll]);
+      if (FHeader.version = 'HTTP/1.1') and (FHeader.header['Host']='') then
+      begin
+        // http/1.1 without Host is not allowed
+        fkeepalive:=False;
+        SendStatusCode(400);
+        Exit;
+      end;
 
-    if (length(Target)>0)and ( (Target[1] <> '/')or(pos('/../', target)>0)) then
-    begin
-      fkeepalive:=False;
-      SendStatusCode(400);
-      Exit;
-    end;
+      FHost:=FServer.SiteManager.GetSite(FHeader.header['Host']);
 
-    if FHost.IsForward(target, newtarget) then
-    begin
-      FReply.header.Add('Location', newtarget);
-      SendStatusCode(301);
-      Exit;
-    end;
+      if not Assigned(FHost) then
+      begin
+        SendStatusCode(500);
+        Exit;
+      end;
 
-    p:=TEpollWorkerThread(FHost.GetCustomHandler(FHeader.url));
-    if Assigned(p) then
-    begin
-      Relocate(p);
+      FHost.ApplyResponseHeader(FReply);
+
+      {
+      if (FHeader.action <> 'GET')and(FHeader.action <> 'HEAD')and(FHeader.action <> 'POST') then
+      begin
+        // method not allowed, this server has no POST implementation
+        fkeepalive:=False;
+        SendStatusCode(405);
+        Exit;
+      end; }
+      target := StringReplace(FHeader.url, '/./', '/', [rfReplaceAll]);
+      target := StringReplace(target, '//', '/', [rfReplaceAll]);
+
+      if (length(Target)>0)and ( (Target[1] <> '/')or(pos('/../', target)>0)) then
+      begin
+        fkeepalive:=False;
+        SendStatusCode(400);
+        Exit;
+      end;
+
+      if FHost.IsForward(target, newtarget) then
+      begin
+        FReply.header.Add('Location', newtarget);
+        SendStatusCode(301);
+        Exit;
+      end;
+
+      p:=TEpollWorkerThread(FHost.GetCustomHandler(FHeader.url));
+      if Assigned(p) then
+      begin
+        Relocate(p);
+      end else
+      if CanWebsocket then
+      begin
+        // ProcessWebsocket
+        SendStatusCode(405);
+      end
+      else
+        SendReply;
     end else
-    if CanWebsocket then
     begin
-      // ProcessWebsocket
-      SendStatusCode(405);
-    end
-    else
-      SendReply;
-  end else
-  begin
-    fkeepalive:=false;
-    SendStatusCode(400);
-    Exit;
-  end;
+      fkeepalive:=false;
+      SendStatusCode(400);
+      Exit;
+    end;
   except
     on E: Exception do
     begin
@@ -591,7 +682,7 @@ end;
 
 procedure THTTPConnection.SendReply;
 var
-  s, params: ansistring;
+  s, params, PathUrl: ansistring;
   Len: Integer;
   Data: Pointer;
   LastModified: TDateTime;
@@ -631,15 +722,54 @@ begin
       target := target + 'index.jsp';
       FFile:=FHost.Files.Find(target);
     end else
+    if FHost.Files.Exists(target + 'index.php') then
+    begin
+      target := target + 'index.php';
+      FFile:=FHost.Files.Find(target);
+    end{ else
+    begin
+      SendStatusCode(404);
+      Exit;
+    end};
+  end;
+
+  if not Assigned(FFile) then
+  begin
+    s:=target;
+    FFile:=FHost.Files.FindPathUrl(s, PathUrl);
+
+    if Assigned(FFile) then
+    begin
+      if Lowercase(ExtractFileExt(s)) = '.php' then
+      begin
+        target:=s;
+        FPathUrl:=PathUrl;
+      end else
+      begin
+        Fhost.Files.Release(FFile);
+        SendStatusCode(404);
+        Exit;
+      end;
+    end else
     begin
       SendStatusCode(404);
       Exit;
     end;
   end;
 
-  if not Assigned(FFile) then
+  if Lowercase(ExtractFileExt(target)) = '.php' then
   begin
-    SendStatusCode(404);
+    if Assigned(FCGI) then
+     FreeandNil(FCGI);
+
+    FCGI:=TExternalProc.Create(Parent, '/usr/bin/php-cgi', '-e', CreateEnvVars);
+
+    if FCGIPostDataLength>0 then
+    begin
+      SendCGIPostData;
+    end;
+
+    FCGI.OnData:=SendCGI;
     Exit;
   end;
 
@@ -663,6 +793,13 @@ begin
       SendRaw(Freply.Build('304 Not Modified'));
       Exit;
     end;
+  end;
+
+  if FHeader.action <> 'GET' then
+  begin
+    if Assigned(FFile) then
+      FHost.Files.Release(FFile);
+    SendStatusCode(500);
   end;
 
   s := '';
@@ -821,14 +958,15 @@ begin
   FTag:=nil;
   FWSData:='';
   FInBuffer:='';
+  FCGIPostDataLength:=0;
+  if Assigned(FCGI) then
+    FreeandNil(FCGI);
 end;
 
 procedure THTTPConnection.Dispose;
 begin
   if Assigned(FServer) then
     FServer.FreeConnection(Self)
-  else
-    dolog(llDebug, 'Shit aint working');
 end;
 
 function THTTPConnection.CanWebsocket: Boolean;
@@ -841,6 +979,9 @@ end;
 function THTTPConnection.CheckTimeout: Boolean;
 var s: string;
 begin
+  if Assigned(FCGI) and not Assigned(FCGI.OnData) then
+    FreeAndNil(FCGI);
+
   case FVersion of
     wvNone, wvUnknown:
     begin
@@ -897,10 +1038,18 @@ begin
   end;
   if FGotHeader then
   begin
-    if FHeader.action = 'POST' then
+    if FContentLength = -1 then
+      FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
+    if FContentLength>0 then
     begin
-      if FContentLength = -1 then
-        FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
+
+      if IsExternalScript then
+      begin
+        FCGIPostDataLength:=FContentLength;
+        result:=True;
+        Exit;
+      end;
+
       if (FContentLength = 0) or (FContentLength > 15 * 1024 * 1024) then
       begin
         result:=True;
@@ -917,6 +1066,194 @@ begin
   end;
 end;
 
+function THTTPConnection.IsExternalScript: Boolean;
+begin
+  // wrong on so many levels!
+  result:=Pos('.php', Lowercase(FHeader.url))>0;
+  //result:=(Lowercase(ExtractFileExt(FHeader.url)) = '.php');// and FHost.Files.Exists(target);
+end;
+
+function THTTPConnection.CreateEnvVars: ansistring;
+const
+  newLine=#13#10;
+var
+  i: Integer;
+  a, b: ansistring;
+begin
+  result:='';
+
+  for i:=0 to FHeader.header.Count-1 do
+  begin
+    FHeader.header.Get(i, a, b);
+    a:=StringReplace(a, '-', '_', [rfReplaceAll]);
+    result:=result + 'HTTP_'+Uppercase(a) + '=' + b + NewLine;
+  end;
+
+  result:=result +
+    'CONTENT_LENGTH=' + FHeader.header['Content-Length'] + NewLine +
+    'CONTENT_TYPE=' + FHeader.header['Content-Type'] + NewLine +
+    'GATEWAY_INTERFACE=CGI/1.1' + NewLine +
+    //'PATH_INFO=' + NewLine +
+    //'PATH_TRANSLATED=' + NewLine +
+    'QUERY_STRING=' + FHeader.parameters + NewLine +
+    'REMOTE_ADDR=' + GetRemoteIP + NewLine +
+    'REMOTE_HOST=' + GetPeerName + NewLine +
+    // 'REMOTE_IDENT=' + NewLine +
+    // 'REMOTE_USER=' + NewLine +
+    'REQUEST_METHOD=' + FHeader.action + NewLine +
+    'SCRIPT_NAME=' + target + NewLine +
+    'SERVER_NAME=127.0.0.1' + NewLine +
+    'SERVER_PORT=80' + NewLine +
+    'SERVER_PROTOCOL=' + FHeader.version + NewLine +
+    'SERVER_SOFTWARE=besenws/0.1' + NewLine +
+    'SERVER_SIGNATURE=besenws/0.1' + NewLine +
+    'DOCUMENT_ROOT=' + FHost.Files.BaseDir + NewLine +
+    'REQUEST_SCHEME=http' + NewLine +
+    'SCRIPT_FILENAME=' + FHost.Files.BaseDir + target + NewLine +
+    'REQUEST_URI=' + FHeader.url + NewLine +
+    'REDIRECT_STATUS=' + FHeader.Url;
+
+  if FPathUrl <> '' then
+    result:=result + NewLine +
+            'PATH_INFO=' + FPathUrl;
+
+  a:=FHeader.header['Authorization'];
+  if a <> '' then
+  begin
+    b:=Copy(a, 1, pos(' ', a)-1);
+    if b = 'Basic' then
+    begin
+      b:=Copy(a, Length(b)+2, Length(a));
+      //a:=Copy(b, 1, pos(':', b)-1);
+      //Delete(b, 1, Length(a)+1);
+      result:=result + NewLine +
+          'AUTH_TYPE=Basic' + NewLine +
+          //'AUTH_USER=' + b + NewLine +
+          //'AUTH_PW=' + a + NewLine +
+          'REMOTE_USER=' + b;// + NewLine +
+          //'REMOTE_PASSWORD=' + a;
+    end;
+  end;
+
+(*
+FProcess.Environment.Add('HTTP_HOST=127.0.0.1');
+FProcess.Environment.Add('HTTP_USER_AGENT=Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:51.0) Gecko/20100101 Firefox/51.0');
+FProcess.Environment.Add('HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8');
+FProcess.Environment.Add('HTTP_ACCEPT_LANGUAGE=en-US,en;q=0.5');
+FProcess.Environment.Add('HTTP_ACCEPT_ENCODING=gzip, deflate');
+FProcess.Environment.Add('HTTP_CONNECTION=keep-alive');
+FProcess.Environment.Add('HTTP_UPGRADE_INSECURE_REQUESTS=1');
+FProcess.Environment.Add('PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
+FProcess.Environment.Add('SERVER_SIGNATURE=<address>Apache/2.4.18 (Ubuntu) Server at 127.0.0.1 Port 80</address>');
+FProcess.Environment.Add('SERVER_SOFTWARE=Apache/2.4.18 (Ubuntu)');
+FProcess.Environment.Add('SERVER_NAME=127.0.0.1');
+FProcess.Environment.Add('SERVER_ADDR=127.0.0.1');
+FProcess.Environment.Add('SERVER_PORT=80');
+FProcess.Environment.Add('REMOTE_ADDR=127.0.0.1');
+FProcess.Environment.Add('DOCUMENT_ROOT=/var/www/html');
+FProcess.Environment.Add('REQUEST_SCHEME=http');
+FProcess.Environment.Add('CONTEXT_PREFIX=<i>no value</i>');
+FProcess.Environment.Add('CONTEXT_DOCUMENT_ROOT=/var/www/html');
+FProcess.Environment.Add('SERVER_ADMIN=webmaster@localhost');
+FProcess.Environment.Add('SCRIPT_FILENAME=/var/www/html/test.php');
+FProcess.Environment.Add('REMOTE_PORT=55290');
+FProcess.Environment.Add('GATEWAY_INTERFACE=CGI/1.1');
+FProcess.Environment.Add('SERVER_PROTOCOL=HTTP/1.1');
+FProcess.Environment.Add('REQUEST_METHOD=GET');
+FProcess.Environment.Add('QUERY_STRING=<i>no value</i>');
+FProcess.Environment.Add('REQUEST_URI=/test.php');
+FProcess.Environment.Add('SCRIPT_NAME=/test.php');
+FProcess.Environment.Add('REDIRECT_STATUS=/test.php');
+*)
+end;
+
+procedure THTTPConnection.SendCGI(const Data: ansistring);
+var
+  i, j, k: Integer;
+  s, s2, s3, status: ansistring;
+begin
+  s:=Data;
+  status:='200 OK';
+
+
+  // parse header-entries passed by script
+  i:=1; // end position of line
+  j:=1; // start position of line
+  k:=0; // position of ":"
+  while i+1<=Length(s) do
+  begin
+    if (s[i]=#13)and(s[i+1]=#10) then
+    begin
+      if k<>0 then
+      begin
+        s2:=Copy(s, j, k-j);
+        s3:=Copy(s, k+1, i-(k+1));
+        if s2='Status' then
+          status:=s3
+        else
+          freply.header.Add(s2, s3);
+      end else
+      if i=j then
+        Break
+      else
+      begin
+        // invalid?
+      end;
+
+      k:=0;
+      Inc(i);
+      j:=i+1;
+    end else
+    if (s[i]=':')and(k=0) then
+      k:=i;
+
+    Inc(i);
+  end;
+  Delete(s, 1, i+1);
+
+
+  (*
+  while pos(#13#10, s)>0 do
+  begin
+    s2:=Copy(s, 1, pos(#13#10, s)-1);
+    delete(s, 1, Length(s2)+2);
+    if s2='' then
+      Break;
+    s3:=Copy(s2, Pos(': ', s2)+2, Length(s2));
+    Setlength(s2, Length(s2)-(Length(s3)+2));
+    if s2='Status' then
+      status:=s3
+    else
+      freply.header.Add(s2, s3);
+  end; *)
+
+  FReply.header.Add('Content-Length', IntToStr(Length(s)));
+
+  if FHeader.action = 'HEAD' then
+    SendRaw(freply.build(status))
+  else
+    SendRaw(freply.build(status) + s);
+
+  FCGI.OnData:=nil;
+  if not fkeepalive then
+    Close;
+end;
+
+procedure THTTPConnection.SendCGIPostData;
+begin
+  if Length(FInBuffer)>FCGIPostDataLength then
+  begin
+    FCGI.Write(@FInBuffer[1], FCGIPostDataLength);
+    Delete(FInBuffer, 1, FCGIPostDataLength);
+    FCGIPostDataLength:=0;
+  end else
+  begin
+    FCGI.Write(@FInBuffer[1], Length(FInBuffer));
+    Dec(FCGIPostDataLength, Length(FInBuffer));
+    FInBuffer:='';
+  end;
+end;
+
 procedure THTTPConnection.ProcessData(const Buffer: Pointer;
   BufferLength: Integer);
 var
@@ -930,6 +1267,13 @@ begin
   Setlength(FInBuffer, i + BufferLength);
   Move(Buffer^, FInBuffer[i+1], BufferLength);
   //FInBuffer:=FInBuffer+Data;
+
+  if Assigned(FCGI) and (FCGIPostDataLength>0) then
+  begin
+    SendCGIPostData;
+    if Length(FInBuffer)=0 then
+      Exit;
+  end;
 
   case FVersion of
     wvNone:
@@ -1139,7 +1483,7 @@ end;
 
 { TWebserver }
 
-procedure TWebserver.AddWorkerThread(AThread: TEpollWorkerThread);
+procedure TWebserver.AddWorkerThread(AThread: TWebserverWorkerThread);
 var
   i: Integer;
 begin
@@ -1159,7 +1503,7 @@ begin
   FWorkerCount:=1;
 
   for i:=0 to FWorkerCount-1 do
-    AddWorkerThread(TEpollWorkerThread.Create(Self));
+    AddWorkerThread(TWebserverWorkerThread.Create(Self));
 
 {$IFDEF OPENSSL_SUPPORT}
   InitSSLInterface;
@@ -1218,7 +1562,7 @@ begin
     dolog(llDebug, 'Increasing threads from '+IntToStr(FWorkerCount)+' to '+IntToStr(Count));
     Setlength(FWorker, Count);
     for i:=FWorkerCount to Count-1 do
-      FWorker[i]:=TEpollWorkerThread.Create(Self);
+      FWorker[i]:=TWebserverWorkerThread.Create(Self);
     FWorkerCount:=Count;
   end;
 end;
@@ -1299,7 +1643,7 @@ begin
   c.SSLContext:=SSLContext;
 {$ENDIF}
 
-  c.GetPeerName;
+  //c.GetPeerName;
   c.Relocate(FWorker[fcurrthread]);
 end;
 
