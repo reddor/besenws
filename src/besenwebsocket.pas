@@ -439,7 +439,7 @@ end;
 
 function TBESENWebsocketClient.GetPostData: string;
 begin
-  result:=FConnection.Header.POSTData.Data;
+  result:='';
 end;
 
 procedure TBESENWebsocketClient.SetPingTime(AValue: Integer);
