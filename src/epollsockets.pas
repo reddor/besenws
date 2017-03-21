@@ -31,9 +31,7 @@ uses
   linux,
   sockets,
   synsock,
-{$IFDEF OPENSSL_SUPPORT}
-  ssl_openssl_lib,
-{$ENDIF}
+  sslclass,
   logging;
 
 const
@@ -60,14 +58,10 @@ type
     FSocket: TSocket;
     FRemoteIP, FRemoteIPPort: ansistring;
     FWantClose: Boolean;
-{$IFDEF OPENSSL_SUPPORT}
-    FWantSSL: Boolean;
     FIsSSL: Boolean;
-    FSSLContext: PSSL_CTX;
-    FSSL: PSSL;
-    FSSLWantWrite: Boolean;
-    procedure CheckSSLError(ErrNo: Longword);
-{$ENDIF}
+    FSSLContext: TAbstractSSLContext;
+    FSSL: TAbstractSSLSession;
+    FWantSSL: Boolean;
     { internal callback function that adds socket in parent thread }
     procedure AddCallback;
   protected
@@ -113,26 +107,22 @@ type
     { send data - if flush is true, data will be immediately written to the
       socket, or stored until FlushSendbuffer is called }
     procedure SendRaw(const Data: ansistring; Flush: Boolean = True);
-{$IFDEF OPENSSL_SUPPORT}
     { performs ssl handshake }
     procedure StartSSL;
     { cleans up ssl - you probably don't want to call this manually }
     procedure StopSSL;
-{$ENDIF}
     { actual socket handle }
     property Socket: TSocket read FSocket;
     { Parent Thread }
     property Parent: TEpollWorkerThread read FParent;
     { callback function when socket is closed }
     property OnDisconnect: TEPollSocketEvent read FonDisconnect write FOnDisconnect;
-{$IFDEF OPENSSL_SUPPORT}
     { returns true if ssl has been loaded }
     property IsSSL: Boolean read FIsSSL;
     { if true, SSL handshake is performed }
     property WantSSL: Boolean read FWantSSL write FWantSSL;
     { the associated openssl context }
-    property SSLContext: PSSL_CTX read FSSLContext write FSSLContext;
-{$ENDIF}
+    property SSLContext: TAbstractSSLContext read FSSLContext write FSSLContext;
   end;
 
   { TCustomEpollHandle }
@@ -256,55 +246,6 @@ end;
 
 { TEPollSocket }
 
-{$IFDEF OPENSSL_SUPPORT}
-procedure TEPollSocket.CheckSSLError(ErrNo: Longword);
-var
-  i: Integer;
-  s: string;
-begin
-  i:=SslGetError(fssl, ErrNo);
-  case i of
-    SSL_ERROR_NONE: dolog(llError, GetPeerName+': SSL Error - SSL_ERROR_NONE');
-    SSL_ERROR_SSL: begin
-      setlength(s, 256);
-      ErrErrorString(ErrGetError, s, Length(s));
-      dolog(llError, GetPeerName+': SSL Error - '+s);
-      FWantclose:=True;
-    end;
-    SSL_ERROR_SYSCALL:
-    begin
-      if ErrNo<>0 then
-      begin
-        setlength(s, 256);
-        ErrErrorString(ErrGetError, s, Length(s));
-        dolog(llError, GetPeerName+': SSL Error - SSL_ERROR_SYSCALL -'+s);
-      end;
-      FWantclose:=True;
-    end;
-    SSL_ERROR_WANT_CONNECT: dolog(llError, GetPeerName+': SSL Error - SSL_ERROR_WANT_CONNECT');
-    SSL_ERROR_WANT_READ:
-    begin
-      // this error can be savely ignored - data will be read automatically via epoll
-    end;
-    SSL_ERROR_WANT_WRITE:
-    begin
-      // openssl wants a
-      FSSLWantWrite:=True;
-      FlushSendbuffer;
-    end;
-    SSL_ERROR_WANT_X509_LOOKUP: dolog(llError, GetPeerName+': SSL Read Error - SSL_ERROR_WANT_X509_LOOKUP');
-    SSL_ERROR_ZERO_RETURN:
-    begin
-      dolog(llError, GetPeerName+': SSL Error - SSL_ERROR_ZERO_RETURN');
-      FWantclose:=True;
-    end;
-
-    SSL_ERROR_WANT_ACCEPT: dolog(llError, GetPeerName+': SSL Read Error - SSL_ERROR_WANT_ACCEPT');
-    else
-      dolog(llError, GetPeerName+': SSL Read Error - Other #'+IntToStr(i));
-  end;
-end;
-
 procedure TEPollSocket.AddCallback;
 begin
   if not FParent.AddSocket(Self) then
@@ -333,17 +274,14 @@ begin
   Temp:='';
 end;
 
-{$ENDIF}
 
 procedure TEPollSocket.SendRaw(const Data: ansistring; Flush: Boolean);
 begin
-{$IFDEF OPENSSL_SUPPORT}
-  if FSSLWantWrite then
+  if Assigned(FSSL) and FSSL.WantWrite then
   begin
     FOutbuffer2:=FOutbuffer2 + data;
     Exit;
   end;
-{$ENDIF}
 
   FOutbuffer:=FOutbuffer + data;
   if Flush then
@@ -355,14 +293,12 @@ function TEPollSocket.ReadData(const Buffer: Pointer; BufferLength: Integer
 var
   bufferRead, err: Integer;
 begin
-{$IFDEF OPENSSL_SUPPORT}
   if FIsSSL then
   begin
-    bufferRead:=SslRead(FSSL, Buffer, BufferLength);
+    bufferRead:=FSSL.Read(Buffer, BufferLength);
     if bufferRead<=0 then
     begin
       result:=False;
-      CheckSSLError(bufferRead);
     end else
     begin
       ProcessData(Buffer, bufferRead);
@@ -370,7 +306,6 @@ begin
     end;
     Exit;
   end;
-{$ENDIF}
 
   bufferRead := fprecv(FSocket, Buffer,BufferLength, MSG_DONTWAIT or MSG_NOSIGNAL);
   if bufferRead<=0 then
@@ -425,30 +360,22 @@ begin
   if not Assigned(FParent) then
     Exit;
 
-  if (Length(FOutbuffer)>0)
-{$IFDEF OPENSSL_SUPPORT}
-     or(FSSLWantWrite)
-{$ENDIF}
+  if (Length(FOutbuffer)>0) or (Assigned(FSSL) and FSSL.WantWrite)
   then begin
-
-{$IFDEF OPENSSL_SUPPORT}
     if FIsSSL then
     begin
       // openssl might want to write something even when we have no data
       if Length(FOutBuffer)=0 then
-        i:=SslWrite(FSSL, nil, 0)
+        i:=FSSL.Write(nil, 0)
       else
-        i:=SslWrite(FSSL, @FOutBuffer[1], Length(FOutbuffer));
+        i:=FSSL.Write(@FOutBuffer[1], Length(FOutbuffer));
 
-      FSSLWantWrite:=False;
       if i<=0 then
       begin
-        CheckSSLError(i);
         i:=0;
       end else
         result:=True;
     end else
-{$ENDIF}
     begin
       i:=fpsend(FSocket, @FOutbuffer[1], Length(FOutbuffer), MSG_DONTWAIT or MSG_NOSIGNAL);
       if i<0 then
@@ -465,10 +392,7 @@ begin
     if result and (i>0) then
       delete(FOutbuffer, 1, i);
 
-    if (Length(FOutBuffer)>0)
-{$IFDEF OPENSSL_SUPPORT}
-       or FSSLWantWrite
-{$ENDIF}
+    if (Length(FOutBuffer)>0) or (Assigned(FSSL)and FSSL.WantWrite)
     then begin
       event.Events:=EPOLLIN or EPOLLOUT;
       event.Data.ptr:=Self;
@@ -551,23 +475,13 @@ begin
   FSocket:=Socket;
 end;
 
-{$IFDEF OPENSSL_SUPPORT}
 procedure TEPollSocket.StartSSL;
-var
-  i: Integer;
 begin
   if FIsSSL then
     Exit;
-  //GetPeerName;
-  fssl := SslNew(FSSLContext);
+  FSSL:=FSSLContext.StartSession(FSocket);
   if Assigned(fssl) then
   begin
-    i:=SslSetFd(fssl, FSocket);
-    if i<=0 then
-      CheckSSLError(i);
-    i:=SslAccept(fssl);
-    if i<=0 then
-      CheckSSLError(i);
     FIsSSL:=True;
   end else
     dolog(llError, 'SSL_new() failed!');
@@ -577,22 +491,19 @@ procedure TEPollSocket.StopSSL;
 begin
    if not FIsSSL then
      Exit;
-  SslFree(fssl);
+  FSSL.Free;
   FIsSSL:=False;
-  Fssl:=nil;
+  FSSL:=nil;
 end;
 
-{$ENDIF}
 
 procedure TEPollSocket.Cleanup;
 begin
    if Assigned(FonDisconnect) then
      FonDisconnect(Self);
 
- {$IFDEF OPENSSL_SUPPORT}
    if FIsSSL then
      StopSSL;
- {$ENDIF}
    if FSocket<>0 then
      fpclose(FSocket);
    FSocket:=0;
@@ -801,13 +712,12 @@ begin
 
   Inc(FTotalCount);
   FSockets[FSocketCount]:=Sock;
-  {$IFDEF OPENSSL_SUPPORT}
+
   if Sock.WantSSL then
   begin
     Sock.StartSSL;
     Sock.WantSSL:=False;
   end;
-  {$ENDIF}
 
   event.Events:=EPOLLIN;
   event.Data.ptr:=Sock;

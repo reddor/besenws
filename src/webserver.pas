@@ -42,9 +42,7 @@ uses
   externalproc,
   fastcgi,
   fcgibridge,
-{$IFDEF OPENSSL_SUPPORT}
-  ssl_openssl_lib,
-{$ENDIF}
+  sslclass,
   logging;
 
 const
@@ -130,26 +128,18 @@ type
     FParent: TWebserver;
     FIP: ansistring;
     FPort: ansistring;
-{$IFDEF OPENSSL_SUPPORT}
-    FSSLCertPass: string;
-    FSSLContext: PSSL_CTX;
-    FSSLMethod: PSSL_METHOD;
+    FSSLContext: TAbstractSSLContext;
     FSSL: Boolean;
-{$ENDIF}
   protected
     procedure Execute; override;
   public
     constructor Create(Parent: TWebserver; IP, Port: ansistring);
-    {$IFDEF OPENSSL_SUPPORT}
     procedure EnableSSL(PrivateKeyFile, CertificateFile, CertPassword: ansistring);
-    {$ENDIF}
     property IP: ansistring read FIP;
     property Port: ansistring read FPort;
     property Parent: TWebserver read FParent;
-{$IFDEF OPENSSL_SUPPORT}
-    property SSLContext:PSSL_CTX read FSSLContext;
+    property SSLContext: TAbstractSSLContext read FSSLContext;
     property SSL: Boolean read FSSL;
-{$ENDIF}
   end;
 
   { TwebserverFCGIBridgeProcess }
@@ -193,7 +183,7 @@ type
     function SetThreadCount(Count: Integer): Boolean;
     function AddListener(IP, Port: ansistring): TWebserverListener;
     function RemoveListener(Listener: TWebserverListener): Boolean;
-    procedure Accept(Sock: TSocket{$IFDEF OPENSSL_SUPPORT}; IsSSL: Boolean; SSLContext: PSSL_CTX{$ENDIF});
+    procedure Accept(Sock: TSocket; IsSSL: Boolean; SSLContext: TAbstractSSLContext);
     procedure FreeConnection(Connection: THTTPConnection);
     property SiteManager: TWebserverSiteManager read FSiteManager;
   end;
@@ -202,25 +192,14 @@ implementation
 
 uses
   IniFiles,
+{$ifdef OPENSSL_SUPPORT}
+  opensslclass,
+{$ENDIF}
   sha1,
   BESENStringUtils,
   besenwebsocket,
   besenwebscript,
   base64;
-
-{$IFDEF OPENSSL_SUPPORT}
-function passwordcallback(buf: Pointer; Size: longint; rwflag: longint; userdata: pointer): longint; cdecl;
-var s: ansistring;
-begin
-  result:=-1;
-  if Assigned(userdata) then
-    s:=TWebserverListener(userdata).FSSLCertPass
-  else
-    Exit;
-  Move(s[1], buf^, length(s));
-  result:=Length(s);
-end;
-{$ENDIF}
 
 function ProcessHandshakeString(const Input: ansistring): ansistring;
 var
@@ -413,11 +392,7 @@ begin
               continue;
             end;
           end;
-{$IFDEF OPENSSL_SUPPORT}
           FParent.Accept(ClientSock, FSSL, FSSLContext);
-{$ELSE}
-          FParent.Accept(ClientSock);
-{$ENDIF}
         end else
           dolog(llWarning, FIP+':'+FPort+': Could not accept incoming connection');
       end;
@@ -436,44 +411,20 @@ begin
   FIP:=IP;
   FParent:=Parent;
   FPort:=Port;
-{$IFDEF OPENSSL_SUPPORT}
   FSSL:=False;
-{$ENDIF}
+  {$IFDEF OPENSSL_SUPPORT}
+  FSSLContext:=TOpenSSLContext.Create;
+  {$ENDIF}
   inherited Create(False);
 end;
 
-{$IFDEF OPENSSL_SUPPORT}
 procedure TWebserverListener.EnableSSL(PrivateKeyFile, CertificateFile, CertPassword: ansistring);
-var
-  i: Integer;
 begin
-  FSSLMethod:=SslMethodTLSV1;
-  FSSLContext:=SslCtxNew(FSSLMethod);
+  if (not Assigned(FSSLContext)) or (FSSL) then
+    Exit;
 
-  // ctx: PSSL_CTX; const _file: String; _type: cInt):cInt;
-  FSSLCertPass := CertPassword; //ini.ReadString('ssl', 'password', '');
-
-  SslCtxSetDefaultPasswdCbUserdata(FSSLContext, self);
-  SslCtxSetDefaultPasswdCb(FSSLContext, @passwordcallback);
-
-  i:=SslCtxUsePrivateKeyFile(FSSLContext, PrivateKeyFile, SSL_FILETYPE_PEM);
-  if i<>1 then
-    dolog(lLError,'SSL: Could not read server key!');
-
-  i:=SslCtxUseCertificateFile(FSSLContext, CertificateFile, SSL_FILETYPE_PEM);
-  if i<>1 then
-    dolog(lLError,'SSL: Could not read certificate!');
-
-  i:= SslCtxCheckPrivateKeyFile(FSSLContext);
-  if i<>1 then
-  begin
-    dolog(llError, 'SSL: could not verify key file!');
-    FSSLContext:=nil;
-    FSSL:=False;
-  end else
-    FSSL:=True;
+  FSSL:=FSSLContext.Enable(PrivateKeyFile, CertificateFile, CertPassword);
 end;
-{$ENDIF}
 
 { THTTPConnection }
 
@@ -712,11 +663,10 @@ begin
 
   if (not Assigned(FFile))and(target[Length(Target)]='/') then
   begin
-    if FHost.Files.Exists(target + 'index.html') then
-    begin
-      target := target + 'index.html';
-      FFile:=FHost.Files.Find(target);
-    end else
+    FFile:=FHost.Files.Find(target + 'index.html');
+    if Assigned(FFile) then
+      target:=target + 'index.html'
+    else
     if FHost.Files.Exists(target + 'index.jsp') then
     begin
       target := target + 'index.jsp';
@@ -1099,7 +1049,6 @@ begin
     'REMOTE_ADDR=' + GetRemoteIP + NewLine +
     'REMOTE_HOST=' + GetPeerName + NewLine +
     // 'REMOTE_IDENT=' + NewLine +
-    // 'REMOTE_USER=' + NewLine +
     'REQUEST_METHOD=' + FHeader.action + NewLine +
     'SCRIPT_NAME=' + target + NewLine +
     'SERVER_NAME=127.0.0.1' + NewLine +
@@ -1124,47 +1073,11 @@ begin
     if b = 'Basic' then
     begin
       b:=Copy(a, Length(b)+2, Length(a));
-      //a:=Copy(b, 1, pos(':', b)-1);
-      //Delete(b, 1, Length(a)+1);
       result:=result + NewLine +
           'AUTH_TYPE=Basic' + NewLine +
-          //'AUTH_USER=' + b + NewLine +
-          //'AUTH_PW=' + a + NewLine +
           'REMOTE_USER=' + b;// + NewLine +
-          //'REMOTE_PASSWORD=' + a;
     end;
   end;
-
-(*
-FProcess.Environment.Add('HTTP_HOST=127.0.0.1');
-FProcess.Environment.Add('HTTP_USER_AGENT=Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:51.0) Gecko/20100101 Firefox/51.0');
-FProcess.Environment.Add('HTTP_ACCEPT=text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8');
-FProcess.Environment.Add('HTTP_ACCEPT_LANGUAGE=en-US,en;q=0.5');
-FProcess.Environment.Add('HTTP_ACCEPT_ENCODING=gzip, deflate');
-FProcess.Environment.Add('HTTP_CONNECTION=keep-alive');
-FProcess.Environment.Add('HTTP_UPGRADE_INSECURE_REQUESTS=1');
-FProcess.Environment.Add('PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');
-FProcess.Environment.Add('SERVER_SIGNATURE=<address>Apache/2.4.18 (Ubuntu) Server at 127.0.0.1 Port 80</address>');
-FProcess.Environment.Add('SERVER_SOFTWARE=Apache/2.4.18 (Ubuntu)');
-FProcess.Environment.Add('SERVER_NAME=127.0.0.1');
-FProcess.Environment.Add('SERVER_ADDR=127.0.0.1');
-FProcess.Environment.Add('SERVER_PORT=80');
-FProcess.Environment.Add('REMOTE_ADDR=127.0.0.1');
-FProcess.Environment.Add('DOCUMENT_ROOT=/var/www/html');
-FProcess.Environment.Add('REQUEST_SCHEME=http');
-FProcess.Environment.Add('CONTEXT_PREFIX=<i>no value</i>');
-FProcess.Environment.Add('CONTEXT_DOCUMENT_ROOT=/var/www/html');
-FProcess.Environment.Add('SERVER_ADMIN=webmaster@localhost');
-FProcess.Environment.Add('SCRIPT_FILENAME=/var/www/html/test.php');
-FProcess.Environment.Add('REMOTE_PORT=55290');
-FProcess.Environment.Add('GATEWAY_INTERFACE=CGI/1.1');
-FProcess.Environment.Add('SERVER_PROTOCOL=HTTP/1.1');
-FProcess.Environment.Add('REQUEST_METHOD=GET');
-FProcess.Environment.Add('QUERY_STRING=<i>no value</i>');
-FProcess.Environment.Add('REQUEST_URI=/test.php');
-FProcess.Environment.Add('SCRIPT_NAME=/test.php');
-FProcess.Environment.Add('REDIRECT_STATUS=/test.php');
-*)
 end;
 
 procedure THTTPConnection.SendCGI(const Data: ansistring);
@@ -1504,11 +1417,6 @@ begin
 
   for i:=0 to FWorkerCount-1 do
     AddWorkerThread(TWebserverWorkerThread.Create(Self));
-
-{$IFDEF OPENSSL_SUPPORT}
-  InitSSLInterface;
-  OPENSSLaddallalgorithms;
-{$ENDIF}
 end;
 
 destructor TWebserver.Destroy;
@@ -1528,9 +1436,6 @@ begin
     FCachedConnections[i].Free;
 
   FCS.Free;
-{$IFDEF OLD_OPENSSL_SUPPORT}
-  FinalizeLocks;
-{$ENDIF}
   inherited Destroy;
 end;
 
@@ -1611,7 +1516,7 @@ end;
 const
   SendHelp: ansistring = 'internal server error';
 
-procedure TWebserver.Accept(Sock: TSocket{$IFDEF OPENSSL_SUPPORT}; IsSSL: Boolean; SSLContext: PSSL_CTX{$ENDIF});
+procedure TWebserver.Accept(Sock: TSocket; IsSSL: Boolean; SSLContext: TAbstractSSLContext);
 var c: THTTPConnection;
 begin
   if FWorkerCount = 0 then
@@ -1638,10 +1543,8 @@ begin
   if not Assigned(c) then
     c:=THTTPConnection.Create(Self, Sock);
 
-{$IFDEF OPENSSL_SUPPORT}
   c.WantSSL:=IsSSL;
   c.SSLContext:=SSLContext;
-{$ENDIF}
 
   //c.GetPeerName;
   c.Relocate(FWorker[fcurrthread]);
