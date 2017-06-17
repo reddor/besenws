@@ -1049,7 +1049,7 @@ var
   i: Integer;
   s: ansistring;
 begin
-  if Length(FInBuffer)>0 then
+  while Length(FInBuffer)>0 do
   begin
     if FInbuffer[1]=#0 then
     begin
@@ -1092,6 +1092,7 @@ begin
   header.opcode := Ord(FInbuffer[1]) and 15;
   header.masked := Ord(FInbuffer[2]) and 128 <> 0;
   header.length := Ord(FInbuffer[2]) and 127;
+
   if header.length = 126 then
   begin
     if Length(FInbuffer)<2+HeaderSize then
@@ -1221,8 +1222,6 @@ begin
         end;
       end;
     end;
-    if Length(FInBuffer)>1 then
-      dolog(llDebug, 'gotcha');
   end;
 end;
 
@@ -1375,16 +1374,12 @@ end;
 procedure THTTPConnection.ProcessData(const Buffer: Pointer;
   BufferLength: Integer);
 var
-  i, j: Integer;
-  s: ansistring;
-  header: TWebsocketFrame;
-
+  i: Integer;
 begin
   FIdletime:=0;
   i:=Length(FInBuffer);
   Setlength(FInBuffer, i + BufferLength);
   Move(Buffer^, FInBuffer[i+1], BufferLength);
-  //FInBuffer:=FInBuffer+Data;
 
   {$IFDEF CGISUPPORT}
   if Assigned(FCGI) and (FCGIPostDataLength>0) then
@@ -1407,141 +1402,13 @@ begin
         // 128kb of data and still no complete request (not counting postdata)
         SendStatusCode(400);
         Close;
-        Exit;
       end;
     end;
-    wvHixie76: ProcessHixie76;
-    wvRFC, wvHybi07, wvHybi10:
-    begin
-      while Length(FInBuffer)>1 do
-      begin
-        j:=2;
-        header.fin := Ord(FInbuffer[1]) and 128 <> 0;
-        header.RSV1 := Ord(FInbuffer[1]) and 64 <> 0;
-        header.RSV2 := Ord(FInbuffer[1]) and 32 <> 0;
-        header.RSV3 := Ord(FInbuffer[1]) and 16 <> 0;
-        header.opcode := Ord(FInbuffer[1]) and 15;
-        header.masked := Ord(FInbuffer[2]) and 128 <> 0;
-        header.length := Ord(FInbuffer[2]) and 127;
-        if header.length = 126 then
-        begin
-          if Length(FInbuffer)<2+j then
-            Exit;
-          header.length:=Ord(FInbuffer[4])+Ord(FInbuffer[3])*256;
-          j:=4;
-        end else if header.length = 127 then
-        begin
-          if Length(FInbuffer)<8+j then
-            Exit;
-           header.length:=PInt64(@FInbuffer[3])^;
-           j:=10;
-        end;
-        if header.Masked then
-        begin
-          if Length(FInBuffer)<4+j then
-            Exit;
-          header.Mask[0]:=Ord(FInbuffer[j+1]);
-          header.Mask[1]:=Ord(FInbuffer[j+2]);
-          header.Mask[2]:=Ord(FInbuffer[j+3]);
-          header.Mask[3]:=Ord(FInbuffer[j+4]);
-          inc(j, 4);
-        end;
-
-        if header.opcode = 255 then
-        begin
-          Delete(FInbuffer, 1, j);
-          Exit;
-        end;
-
-        if Length(FInbuffer)<j+header.Length then
-          Exit;
-
-        s:=Copy(FInBuffer, j+1, header.length);
-        Delete(FInBuffer, 1, j+header.length);
-
-        if header.Masked then
-        begin
-          for i:=1 to header.Length do
-            s[i]:=AnsiChar(Byte(s[i]) xor header.mask[(i-1) mod 4]);
-        end else
-        begin
-          // only accept masked frames
-          Close;
-          Exit;
-        end;
-
-        case header.opcode of
-          254:
-          begin
-            // 254 error, 8 connection close
-            Close;
-            Exit;
-          end;
-          0:
-          begin
-            // continuation frame
-            if not hassegmented then
-            begin
-              Close;
-              Exit;
-            end;
-
-            FWSData:=FWSData  + Copy(FInBuffer, j+1, header.Length);
-
-            if header.fin then
-            begin
-              hassegmented:=false;
-              if Assigned(FOnData) then
-                FOnData(Self, FWSDAta);
-              fwsdata:='';
-              // data received!
-            end;
-          end;
-          1, 2:
-          begin
-            // 1 = text, 2 = binary
-            if not header.fin then
-            begin
-              if hasSegmented then
-                Close;
-              FWSData:=s;
-              hasSegmented := true;
-            end else
-            begin
-              // data received
-              if Assigned(FOnData) then
-                FOnData(Self, s);
-            end;
-          end;
-          8:
-          begin
-            SendRaw(CreateHeader(header.opcode, Length(s)) + s);
-            Close;
-          end;
-          9: SendRaw(CreateHeader(10, Length(s)) + s);
-          10:
-          begin
-            // pong
-            try
-              // edge doesn't include ping string?
-              if s<>'' then
-                FLag:=longword(DateTimeToTimeStamp (Now).time - (StrToInt(s)))
-              else if FLastPing <> 0 then
-                FLag:=DateTimeToTimeStamp(Now).Time - FLastPing;
-              FLastPing:=0;
-              //dolog(lldebug, 'got pong, lag '+IntToStr(FLag)+'ms');
-            except
-              on e: Exception do
-              begin
-                dolog(llError, GetPeerName+': send invalid pong reply ' + s + ' '+e.Message);
-                Close;
-              end;
-            end;
-          end;
-        end;
-        if Length(FInBuffer)>1 then
-          dolog(llDebug, 'gotcha');
-      end;
+    wvHixie76: ProcessHixie76();
+    wvRFC, wvHybi07, wvHybi10: ProcessRFC();
+    else begin
+      dolog(llError, 'Unknown state in THTTPConnection.ProcessData');
+      Close;
     end;
   end;
 end;
