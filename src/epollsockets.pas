@@ -202,7 +202,7 @@ begin
     if FHandles[i] = Handle then
       Exit;
 
-  event.Events:=EPOLLIN or EPOLLET or EPOLLHUP;
+  event.Events:=EPOLLIN or {EPOLLET or }EPOLLHUP;
   event.Data.ptr:=Self;
 
   if epoll_ctl(FParent.epollfd, EPOLL_CTL_ADD, Handle, @event)<0 then
