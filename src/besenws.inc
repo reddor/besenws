@@ -11,3 +11,5 @@
 { send and receive ping requests via userdata-layer, since this draft
   has no support for pings inside the protocol. }
 
+
+{.$DEFINE CGISUPPORT}

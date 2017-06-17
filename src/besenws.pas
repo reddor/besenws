@@ -42,11 +42,13 @@ uses
   beseninstance,
   epollsockets,
   besendb,
+  {$IFDEF CGISUPPORT}
   externalproc,
   fcgibridge,
+  {$ENDIF}
   sslclass;
 
-{$R *.res}
+{.$R *.res}
 
 var
   isdebug: Boolean;
