@@ -31,6 +31,7 @@ uses
   datautils,
   httphelper,
   jsonstore,
+  epollsockets,
   logging;
 
 const
@@ -88,14 +89,14 @@ type
     procedure AddResponseHeader(const name, value: ansistring);
     procedure AddFile(filename, content, fullpath: string);
     procedure AddHostAlias(HostName: string);
-    procedure AddCustomHandler(url: string; Handler: Pointer);
+    procedure AddCustomHandler(url: string; Handler: TEpollWorkerThread);
     procedure AddCustomStatusPage(StatusCode: Word; URI: string);
     procedure ApplyResponseHeader(const Response: THTTPReply);
     function GetCustomStatusPage(StatusCode: Word): ansistring;
     function GetStore(const Location: string): string;
     function PutStore(const Location, Data: string): Boolean;
     function DelStore(const Location: string): Boolean;
-    function GetCustomHandler(url: string): Pointer;
+    function GetCustomHandler(url: string): TEpollWorkerThread;
     property Files: TFileCache read FFileCache;
     property Path: string read FPath;
     property Name: string read FName;
@@ -402,7 +403,8 @@ begin
 end;
 
 
-procedure TWebserverSite.AddCustomHandler(url: string; Handler: Pointer);
+procedure TWebserverSite.AddCustomHandler(url: string;
+  Handler: TEpollWorkerThread);
 begin
   FCustomHandlers.Add(url, Handler);
 end;
@@ -471,9 +473,9 @@ begin
   end;
 end;
 
-function TWebserverSite.GetCustomHandler(url: string): Pointer;
+function TWebserverSite.GetCustomHandler(url: string): TEpollWorkerThread;
 begin
-  result:=FCustomHandlers[url];
+  result:=TEpollWorkerThread(FCustomHandlers[url]);
 end;
 
 { TWebserverSiteManager }

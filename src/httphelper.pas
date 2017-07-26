@@ -17,8 +17,8 @@ unit httphelper;
  You should have received a copy of the GNU Lesser General Public License
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 }
-{$i besenws.inc}
 
+{$mode delphi}
 interface
 
 uses
@@ -26,6 +26,7 @@ uses
 
 type
   { THTTPRequestFields }
+
   THTTPRequestFields = class
   private
     FCount: Integer;
@@ -43,6 +44,7 @@ type
     procedure Clear;
     function Exists(Name: ansistring): Integer;
     procedure Get(Index: Integer; out Name, Value: ansistring);
+    function Generate: ansistring;
 
     property Count: Integer read FCount;
     property Requests[const index: ansistring]: ansistring read GetHeader write SetHeader; default;
@@ -72,11 +74,14 @@ type
     destructor Destroy; override;
     { read from string }
     function readstr(var str: ansistring): Boolean;
+
+    function Generate: ansistring;
+
     function GetCookies(aTimeout: ansistring = ''): ansistring;
     property POSTData: THTTPPostData read FPostData;
-    property action: ansistring read FAction;
-    property version: ansistring read FVersion;
-    property url: ansistring read FURL;
+    property action: ansistring read FAction write FAction;
+    property version: ansistring read FVersion write FVersion;
+    property url: ansistring read FURL write FURL;
     property parameters: ansistring read FParameters write FParameters;
     property header: THTTPRequestFields read FHeader;
     property RangeCount: Integer read GetRangeCount;
@@ -102,6 +107,7 @@ type
 
   THTTPReply = class
   private
+    FResponse: ansistring;
     FVersion: ansistring;
     FHeader: THTTPRequestFields;
   public
@@ -111,7 +117,10 @@ type
     procedure Clear(Version: ansistring);
 
     function Build(Response: ansistring): ansistring;
+    function Read(Reply: ansistring): Boolean;
     property header: THTTPRequestFields read FHeader;
+    property response: ansistring read FResponse write FResponse;
+    property version: ansistring read FVersion write FVersion;
   end;
 
 
@@ -127,6 +136,9 @@ procedure GetHTTPStatusCode(ErrorCode: Word; out Title, Description: ansistring)
 implementation
 
 uses
+{$IFDEF MSWINDOWS}
+  Windows,
+{$ENDIF}
   Math,
   DateUtils;
 
@@ -448,16 +460,17 @@ var
   FindData : TWIN32FindDataA;
 begin
   Result := 0;
+  LocalFT.dwHighDateTime:=0;
+  LocalFT.dwLowDateTime:=0;
+  DosFT:=0;
   FileH := FindFirstFileA(PAnsiChar(TheFile), FindData) ;
   if FileH <> INVALID_HANDLE_VALUE then begin
    Windows.FindClose(FileH) ;
    if (FindData.dwFileAttributes AND
        FILE_ATTRIBUTE_DIRECTORY) = 0 then
     begin
-     FileTimeToLocalFileTime
-      (FindData.ftLastWriteTime,LocalFT) ;
-     FileTimeToDosDateTime
-      (LocalFT,LongRec(DosFT).Hi,LongRec(DosFT).Lo) ;
+     FileTimeToLocalFileTime(FindData.ftLastWriteTime,LocalFT) ;
+     FileTimeToDosDateTime(LocalFT,LongRec(DosFT).Hi,LongRec(DosFT).Lo) ;
      Result := FileDateToDateTime(DosFT) ;
     end;
   end;
@@ -623,6 +636,19 @@ begin
   Value := FRequests[Index].Value;
 end;
 
+function THTTPRequestFields.Generate: ansistring;
+var
+  i: Integer;
+begin
+  result:='';
+  if FCount = 0 then
+    Exit;
+  result:=FRequests[0].Name+': '+FRequests[0].Value;
+
+  for i:=1 to FCount-1 do
+    result:=result + #13#10 + FRequests[i].Name + ': '+ FRequests[i].Value;
+end;
+
 function THTTPRequestFields.Exists(Name: ansistring): Integer;
 var
   i: Integer;
@@ -640,6 +666,8 @@ end;
 
 constructor THTTPRequest.Create;
 begin
+  FAction:='GET';
+  FVersion:='HTTP/1.1';
   FHeader := THTTPRequestFields.Create;
   FPostData := THTTPPostData.Create(Self);
   FCookies := THTTPRequestFields.Create;
@@ -804,6 +832,19 @@ begin
   end;
 end;
 
+function THTTPRequest.Generate: ansistring;
+begin
+  result:=FAction + ' ' + FURL;
+
+  if FParameters<>'' then
+    result:=result + '?' + FParameters;
+
+  result:=result + ' '+FVersion + #13#10 +
+          FHeader.Generate;
+
+  result:=result + #13#10#13#10;
+end;
+
 function THTTPRequest.GetRangeCount: Integer;
 begin
   result := length(FRangeSegments);
@@ -872,6 +913,47 @@ begin
     AddStr(#13#10);
   end;
   AddStr(#13#10);
+end;
+
+function THTTPReply.Read(Reply: ansistring): Boolean;
+var
+  s: ansistring;
+  i: Integer;
+  function GetLine: ansistring;
+  var
+    i: Integer;
+  begin
+    i:=pos(#13#10, Reply);
+    if i>0 then
+    begin
+      result:=Copy(Reply, 1, i-1);
+      Delete(Reply, 1, i+1);
+    end else
+    begin
+      result:=Reply;
+      Reply:='';
+    end;
+  end;
+begin
+  FHeader.Clear;
+
+  result:=False;
+  s:=GetLine;
+  FVersion:=Copy(s, 1, Pos(' ', s)-1);
+  Delete(s, 1, Length(FVersion)+1);
+  FResponse:=s;
+  repeat
+    s:=GetLine;
+    if s='' then
+      Break;
+    i:=Pos(': ', s);
+    if i>0 then
+    begin
+      FHeader.Add(Copy(s, 1, i-1), Trim(Copy(s, i+2, Length(s))));
+    end else
+      Exit;
+  until s='';
+  result:=True;
 end;
 
 procedure THTTPReply.Clear(Version: ansistring);

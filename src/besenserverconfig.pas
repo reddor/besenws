@@ -256,6 +256,8 @@ end;
 procedure TBESENWebserverSite.addWebsocket(const ThisArgument: TBESENValue;
   Arguments: PPBESENValues; CountArguments: integer;
   var ResultValue: TBESENValue);
+var
+  url: TBESENString;
 begin
   if not Assigned(FSite) then
     Exit;
@@ -263,7 +265,8 @@ begin
   if CountArguments<2 then
     Exit;
 
-  FSite.AddCustomHandler(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), TBESENWebsocket.Create(FServer, FSite, BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^))));
+  url:=TBESEN(Instance).ToStr(Arguments^[0]^);
+  FSite.AddCustomHandler(BESENUTF16ToUTF8(url), TBESENWebsocket.Create(FServer, FSite, BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)), url));
 end;
 
 procedure TBESENWebserverSite.updateCache(const ThisArgument: TBESENValue;

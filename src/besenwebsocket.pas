@@ -86,6 +86,7 @@ type
     FOnData: TBESENObjectFunction;
     FOnDisconnect: TBESENObjectFunction;
     FOnRequest: TBESENObjectFunction;
+    FUrl: TBESENString;
   published
     { onRequest = function(client) - callback function for an incoming regular http request }
     property onRequest: TBESENObjectFunction read FOnRequest write FOnRequest;
@@ -95,6 +96,7 @@ type
     property onData: TBESENObjectFunction read FOnData write FOnData;
     { onDisconnect = function(client) - callback function when a client disconnects }
     property onDisconnect: TBESENObjectFunction read FOnDisconnect write FOnDisconnect;
+    property url: TBESENString read FUrl;
   end;
 
   { TBESENWebsocket }
@@ -107,6 +109,7 @@ type
     FHandler: TBESENWebsocketHandler;
     FClients: array of TBESENWebsocketClient;
     FIdleTicks: Integer;
+    FUrl: TBESENString;
   protected
     procedure LoadBESEN;
     procedure UnloadBESEN;
@@ -116,7 +119,7 @@ type
     procedure ClientData(Sender: THTTPConnection; data: ansistring);
     procedure ClientDisconnect(Sender: TEPollSocket);
   public
-    constructor Create(aParent: TWebserver; ASite: TWebserverSite; AFile: string);
+    constructor Create(aParent: TWebserver; ASite: TWebserverSite; AFile: string; Url: TBESENString);
     destructor Destroy; override;
   end;
 
@@ -128,13 +131,13 @@ uses
 { TBESENWebsocketHandler }
 
 constructor TBESENWebsocket.Create(aParent: TWebserver; ASite: TWebserverSite;
-  AFile: string);
+  AFile: string; Url: TBESENString);
 begin
   FSite:=ASite;
   OnConnection:=AddConnection;
   FFilename:=ASite.Path+AFile;
   FInstance:=nil;
-
+  FURL:=Url;
   LoadBESEN;
   inherited Create(aParent);
 end;
@@ -151,9 +154,10 @@ begin
   if Assigned(FInstance) then
     Exit;
 
-  FInstance:=TBESENInstance.Create(FSite.Parent, FSite);
+  FInstance:=TBESENInstance.Create(FSite.Parent, FSite, self);
   FHandler:=TBESENWebsocketHandler.Create(FInstance);
   FHandler.InitializeObject;
+  FHandler.FUrl:=FUrl;
 
   FInstance.GarbageCollector.Add(TBESENObject(FHandler));
   FInstance.GarbageCollector.Protect(TBESENObject(FHandler));

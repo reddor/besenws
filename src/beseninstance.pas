@@ -133,6 +133,7 @@ procedure OutputBESENException(e: Exception; Besen: TBESEN);
 implementation
 
 uses
+  xmlhttprequest,
   besenevents,
   besendb,
   logging;
@@ -479,6 +480,7 @@ begin
   ObjectGlobal.put('system', BESENObjectValue(FSystemObject), false);
   RegisterNativeObject('EventList', TBESENEventListener);
   RegisterNativeObject('DatabaseConnection', TBESENDatabaseConnection);
+  RegisterNativeObject('XMLHTTPRequest', TBESENXMLHttpRequest);
   ObjectGlobal.RegisterNativeFunction('importScripts',NativeImportScripts,0,[]);
   ObjectGlobal.RegisterNativeFunction('setTimeout',FSystemObject.setTimeout,0,[]);
 end;
