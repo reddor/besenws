@@ -174,6 +174,7 @@ type
   TWebserver = class
   private
     FCS: TCriticalSection;
+    FTestMode: Boolean;
     FWorkerCount: Integer;
     FWorker: array of TWebserverWorkerThread;
     FSiteManager: TWebserverSiteManager;
@@ -185,7 +186,7 @@ type
   protected
     procedure AddWorkerThread(AThread: TWebserverWorkerThread);
   public
-    constructor Create(const BasePath: ansistring);
+    constructor Create(const BasePath: ansistring; IsTestMode: Boolean = False);
     destructor Destroy; override;
     function SetThreadCount(Count: Integer): Boolean;
     function AddListener(IP, Port: ansistring): TWebserverListener;
@@ -193,6 +194,7 @@ type
     procedure Accept(Sock: TSocket; IsSSL: Boolean; SSLContext: TAbstractSSLContext);
     procedure FreeConnection(Connection: THTTPConnection);
     property SiteManager: TWebserverSiteManager read FSiteManager;
+    property TestMode: Boolean read FTestMode;
   end;
 
 implementation
@@ -1450,10 +1452,11 @@ begin
   FWorker[i]:=AThread;
 end;
 
-constructor TWebserver.Create(const BasePath: ansistring);
+constructor TWebserver.Create(const BasePath: ansistring; IsTestMode: Boolean);
 var
   i: Integer;
 begin
+  FTestMode:=IsTestMode;
   FCS:=TCriticalSection.Create;
 
   FSiteManager:=TWebserverSiteManager.Create(BasePath);
@@ -1489,8 +1492,16 @@ var
   i: Integer;
 begin
   result:=False;
+
   if Count<0 then
     Exit;
+
+  if FTestMode then
+  begin
+    result:=True;
+    Exit;
+  end;
+
 
   if Count < FWorkerCount then
   begin
@@ -1521,6 +1532,12 @@ function TWebserver.AddListener(IP, Port: ansistring): TWebserverListener;
 var
   i: Integer;
 begin
+  if FTestMode then
+  begin
+    result:=nil;
+    Exit;
+  end;
+
   dolog(llNotice, 'Creating listener for '''+IP+':'+Port+'''');
   result:=TWebserverListener.Create(Self, IP, Port);
   FCS.Enter;
@@ -1538,6 +1555,9 @@ var
   i: Integer;
 begin
   result:=False;
+  if not Assigned(FListener) then
+    Exit;
+
   FCS.Enter;
   try
     for i:=0 to Length(FListener)-1 do

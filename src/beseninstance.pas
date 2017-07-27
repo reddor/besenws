@@ -130,6 +130,7 @@ type
 implementation
 
 uses
+  besenserverconfig,
   xmlhttprequest,
   besenevents,
   besendb,
@@ -525,7 +526,7 @@ procedure TBESENInstance.OutputException(e: Exception; Section: ansistring);
 var
   s: ansistring;
 begin
-  s:='['+GetFilename+','+IntToStr(LineNumber)+'] '+e.Message;
+  s:='['+StripBasePath(GetFilename)+':'+IntToStr(LineNumber)+'] '+e.Message;
   if Section <> '' then
     s:='['+Section+'] '+s;
 

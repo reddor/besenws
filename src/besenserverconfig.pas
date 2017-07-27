@@ -124,7 +124,7 @@ type
     FServerObject: TBESENWebserverObject;
     FPath: ansistring;
   public
-    constructor Create(const BasePath: ansistring);
+    constructor Create(const BasePath: ansistring; TestMode: Boolean = false);
     destructor Destroy; override;
     function Execute(Filename: string): Boolean;
     procedure Process;
@@ -135,12 +135,24 @@ type
 var
   ServerManager: TWebserverManager;
 
+function StripBasePath(filename: ansistring): ansistring;
+
 implementation
 
 uses
   mimehelper,
   besenwebsocket,
   logging;
+
+function StripBasePath(filename: ansistring): ansistring;
+begin
+  if not Assigned(ServerManager) then
+    result:=filename
+  else if Pos(lowercase(Servermanager.Path), lowercase(filename))=1 then
+    result:=Copy(filename, Length(ServerManager.Path), Length(filename))
+  else
+    result:=filename;
+end;
 
 { TBESENWebserverListener }
 
@@ -462,10 +474,11 @@ end;
 
 { TWebserverManager }
 
-constructor TWebserverManager.Create(const BasePath: ansistring);
+constructor TWebserverManager.Create(const BasePath: ansistring;
+  TestMode: Boolean);
 begin
   ServerManager:=Self;
-  FServer:=TWebserver.Create(BasePath);
+  FServer:=TWebserver.Create(BasePath, TestMode);
   FInstance:=TBESENInstance.Create(FServer.SiteManager, nil);
   FPath:=FServer.SiteManager.Path;
   FServerObject:=TBESENWebserverObject.Create(FInstance);

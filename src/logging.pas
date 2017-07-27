@@ -25,8 +25,11 @@ uses
   Classes, SysUtils, SyncObjs, dateutils, Variants;
 
 type
-  TLoglevel = (llDebug, llNotice, llWarning, llError);
+  TLoglevel = (llDebug=0, llNotice=1, llWarning=2, llError=3, llFatal=4);
   TLogItems = array of Variant;
+
+var
+  GlobalLogLevel: TLoglevel;
 
 procedure dolog(LogLevel: TLogLevel; const Message: TLogItems); overload;
 procedure dolog(Loglevel: TLoglevel; msg: ansistring); overload;
@@ -51,12 +54,16 @@ procedure dolog(LogLevel: TLogLevel; const Message: TLogItems);
 var
   i: Integer;
 begin
+  if LogLevel<GlobalLogLevel then
+    Exit;
+
   Write('[', TimeToStr(Time),'] ');
   case LogLevel of
-    llDebug: Write('  [Debug] ');
-    llNotice: Write(' [Notice] ');
+    llDebug:   Write('  [Debug] ');
+    llNotice:  Write(' [Notice] ');
     llWarning: Write('[Warning] ');
-    llError: Write('  [Error] ');
+    llError:   Write('  [Error] ');
+    llFatal:   Write('  [Fatal] ');
   end;
   for i:=Low(Message) to High(Message) do
     Write(Message[i]);
@@ -67,12 +74,16 @@ procedure dolog(Loglevel: TLoglevel; msg: ansistring);
 var
   s:ansistring;
 begin
+  if LogLevel<GlobalLogLevel then
+    Exit;
   case Loglevel of
     llDebug:   s:='['+TimeToStr(Time)+']   [Debug] '+msg;
     llNotice:  s:='['+TimeToStr(Time)+']  [Notice] '+msg;
     llWarning: s:='['+TimeToStr(Time)+'] [Warning] '+msg;
+    llError:   s:='['+TimeToStr(Time)+']   [Error] '+msg;
+    llFatal:   s:='['+TimeToStr(Time)+']   [Fatal] '+msg;
     else
-      s:='['+TimeToStr(Time)+']   [Error] '+msg;
+               s:='['+TimeToStr(Time)+'] [???????] '+msg;
   end;
   CS.Enter;
   if DoLogToFile then
@@ -86,6 +97,7 @@ begin
 end;
 
 initialization
+  GlobalLogLevel:=llDebug;
   DoLogToFile:=False;
   CS:=TCriticalSection.Create;
 finalization

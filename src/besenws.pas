@@ -53,6 +53,7 @@ uses
 var
   isdebug: Boolean;
   shutdown: Boolean;
+  testmode: Boolean;
   hasforked: Boolean;
   oa,na : PSigActionRec;
   ConfigurationPath: ansistring;
@@ -151,6 +152,7 @@ var
   GotPath: Boolean;
 begin
   GotPath:=False;
+  testmode:=False;
 
   if ParamCount = 0 then
   begin
@@ -165,6 +167,10 @@ begin
       if s = '-debug' then
         isdebug:=true
       else
+      if s = '-test' then
+      begin
+        testmode:=true;
+      end else
       begin
         Writeln('Invalid parameter '+s);
         Writeln;
@@ -198,8 +204,6 @@ begin
 end;
 
 begin
-  Writeln('besen.ws server');
-
   isdebug:=False;
   ConfigurationPath:=ExtractFilePath(ParamStr(0));
   CheckParameters;
@@ -229,6 +233,14 @@ begin
     if fpSigAction(SIGPIPE,na,oa)<>0 then
       dolog(llError, 'Could not set up signalhandler!');
 
+    if testmode then
+    begin
+      if not isdebug then
+        GlobalLogLevel:=llError;
+      isdebug:=True;
+    end;
+
+    dolog(llNotice, 'besenws Build '+{$I %DATE%});
     if not isdebug then
     begin
       ForkToBackground;
@@ -239,7 +251,7 @@ begin
 
     shutdown:=False;
 
-    ServerManager:=TWebserverManager.Create(ConfigurationPath);
+    ServerManager:=TWebserverManager.Create(ConfigurationPath, testmode);
     if not ServerManager.Execute(ConfigurationPath+'settings.js') then
     begin
       dolog(llError, 'Startup failed!');
@@ -247,6 +259,7 @@ begin
     end;
     dolog(llNotice, 'Loading complete');
 
+    if not testmode then
     while not shutdown do
     begin
       Sleep(20);
