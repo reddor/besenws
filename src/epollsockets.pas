@@ -177,6 +177,11 @@ type
     property Parent: TObject read FParent;
   end;
 
+const
+  { Default waiting time for epoll }
+  EpollWaitTime = 20;
+
+
 implementation
 
 uses
@@ -184,8 +189,6 @@ uses
   webserver;
 
 const
-  { Default waiting time for epoll }
-  EpollWaitTime = 100;
   { ticks until CheckTimeout function is called }
   ClientTickInterval = 1000 div EpollWaitTime;
   { Internal buffer size for a single read() call }

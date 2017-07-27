@@ -155,6 +155,7 @@ constructor TBESENSystemObject.Create(AParent: TBESENInstance;
 begin
   FSite:=Site;
   FTimer:=TBESENTimerEvents.Create(AParent);
+  AParent.AddEventHandler(Process);
 
   inherited Create(AParent);
   InitializeObject;

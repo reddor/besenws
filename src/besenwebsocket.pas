@@ -328,11 +328,12 @@ procedure TBESENWebsocket.ThreadTick;
 begin
   if Assigned(FInstance) then
   begin
+    FInstance.ProcessHandlers;
     FInstance.GarbageCollector.Collect;
     if (Length(FClients)>0) then
       FIdleTicks:=0
     else begin
-      if FIdleTicks>1000 then
+      if FIdleTicks * EpollWaitTime > 20000 then
         UnloadBESEN
       else
         inc(FIdleTicks);
