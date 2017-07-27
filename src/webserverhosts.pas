@@ -216,8 +216,8 @@ destructor TFileCachingThread.Destroy;
 begin
   Terminate;
   WaitFor;
-  FCS.Leave;
   inherited Destroy;
+  FCS.Free;
 end;
 
 procedure TFileCachingThread.QueueScan(Site: TWebserverSite);
@@ -528,12 +528,14 @@ destructor TWebserverSiteManager.Destroy;
 var
   i: Integer;
 begin
+  FCacheThread.Free;
   for i:=0 to Length(FHosts)-1 do
+  begin
     FHosts[i].Free;
+  end;
   Setlength(FHosts, 0);
   FHostsByName.Free;
   FSharedScripts.Free;
-  FCacheThread.Free;
   inherited Destroy;
 end;
 

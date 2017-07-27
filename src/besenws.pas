@@ -105,12 +105,22 @@ begin
     end;
     SIGINT:
     begin
-     dolog(llNotice, 'SIGINT received');
-     shutdown:=True;
+      dolog(llNotice, 'SIGINT received');
+      if shutdown then
+      begin
+        dolog(llError, 'Forcing shutdown...');
+        Halt(1);
+      end;
+      shutdown:=True;
     end;
     SIGTERM:
     begin
       dolog(llNotice, 'SIGTERM received');
+      if shutdown then
+      begin
+        dolog(llError, 'Forcing shutdown...');
+        Halt(1);
+      end;
       shutdown := True;
     end;
     SIGPIPE:
@@ -230,7 +240,11 @@ begin
     shutdown:=False;
 
     ServerManager:=TWebserverManager.Create(ConfigurationPath);
-    ServerManager.Execute(ConfigurationPath+'settings.js');
+    if not ServerManager.Execute(ConfigurationPath+'settings.js') then
+    begin
+      dolog(llError, 'Startup failed!');
+      Halt(1);
+    end;
     dolog(llNotice, 'Loading complete');
 
     while not shutdown do

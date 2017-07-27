@@ -126,7 +126,7 @@ type
   public
     constructor Create(const BasePath: ansistring);
     destructor Destroy; override;
-    procedure Execute(Filename: string);
+    function Execute(Filename: string): Boolean;
     procedure Process;
     property Server: TWebserver read FServer;
     property Path: ansistring read FPath;
@@ -483,16 +483,18 @@ begin
   inherited Destroy;
 end;
 
-procedure TWebserverManager.Execute(Filename: string);
+function TWebserverManager.Execute(Filename: string): Boolean;
 var
   lastfile: Integer;
 begin
+  result:=False;
   lastfile:=FInstance.CurrentFile;
   FInstance.SetFilename(ExtractFileName(Filename));
   FInstance.ObjectGlobal.put('server', BESENObjectValue(FServerObject), false);
 
   try
     FInstance.Execute(BESENGetFileContent(Filename));
+    result:=True;
   except
     on e: Exception do
       FInstance.OutputException(e);
