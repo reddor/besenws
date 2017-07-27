@@ -99,6 +99,9 @@ destructor TBESENXMLHttpRequest.Destroy;
 begin
   if Assigned(FRequest) then
   begin
+    FRequest.OnError:=nil;
+    FRequest.OnForward:=nil;
+    FRequest.OnResponse:=nil;
     if not FRequest.Finished then
     begin
       FRequest.FreeOnTerminate:=True;
