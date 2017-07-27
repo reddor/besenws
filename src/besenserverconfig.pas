@@ -497,7 +497,7 @@ begin
     result:=True;
   except
     on e: Exception do
-      FInstance.OutputException(e);
+      FInstance.OutputException(e, 'startup');
   end;
   FInstance.CurrentFile:=lastfile;
 end;

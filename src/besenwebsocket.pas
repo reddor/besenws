@@ -168,7 +168,7 @@ begin
     FInstance.Execute(BESENGetFileContent(FFilename));
   except
     on e: Exception do
-      dolog(llDebug, 'Error executing websocket script '+FFilename+','+IntToStr(FInstance.LineNumber)+': '+e.Message);
+      FInstance.OutputException(e, 'websocket-init');
   end;
 end;
 
@@ -215,7 +215,7 @@ begin
      dolog(llDebug, 'No Data handler');
   except
     on e: Exception do
-      FSite.log(llError, '[script] ['+FInstance.GetFilename+':'+IntToStr(FInstance.LineNumber)+': '+ e.Message);
+      FInstance.OutputException(e, 'handler.onData');
   end;
 end;
 
@@ -243,7 +243,7 @@ begin
       FHandler.onDisconnect.Call(BESENObjectValue(FHandler), @a, 1, AResult);
     except
       on e: Exception do
-        dolog(llError, 'Script error in line '+IntToStr(FInstance.LineNumber)+': '+ e.Message);
+        FInstance.OutputException(e, 'handler.onDisconnect');
     end;
   end;
   FInstance.GarbageCollector.UnProtect(TBESENObject(client));
@@ -309,7 +309,7 @@ begin
         FHandler.onRequest.Call(BESENObjectValue(FHandler), @a, 1, AResult);
     except
       on e: Exception do
-        dolog(llError, 'Script error in line '+IntToStr(FInstance.LineNumber)+': '+ e.Message);
+        FInstance.OutputException(e, 'handler.onRequest');
     end;
   end else
   begin
@@ -319,7 +319,7 @@ begin
         FHandler.onConnect.Call(BESENObjectValue(FHandler), @a, 1, AResult);
     except
       on e: Exception do
-        dolog(llError, 'Script error in line '+IntToStr(FInstance.LineNumber)+': '+ e.Message);
+        FInstance.OutputException(e, 'handler.onConnect');
     end;
   end;
 end;

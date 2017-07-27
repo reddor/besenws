@@ -123,12 +123,9 @@ type
     procedure ProcessHandlers;
     procedure AddEventHandler(Handler: TBESENInstanceHandler);
     procedure RemoveEventHandler(Handler: TBESENInstanceHandler);
-    procedure OutputException(e: Exception);
+    procedure OutputException(e: Exception; Section: ansistring = '');
     property Thread: TThread read FThread;
   end;
-
-
-procedure OutputBESENException(e: Exception; Besen: TBESEN);
 
 implementation
 
@@ -137,11 +134,6 @@ uses
   besenevents,
   besendb,
   logging;
-
-procedure OutputBESENException(e: Exception; Besen: TBESEN);
-begin
-  dolog(llError, '[script] line '+IntTOStr(Besen.LineNumber)+': '+e.Message);
-end;
 
 { TBESENSystemObject }
 
@@ -154,7 +146,7 @@ begin
     FOnTick.Call(BESENObjectValue(Self), nil, 0, AResult);
   except
     on e: Exception do
-      OutputBESENException(e, TBESEN(Instance));
+      TBESENInstance(Instance).OutputException(e, 'system.onTick');
   end;
 end;
 
@@ -401,26 +393,26 @@ begin
     p:=@FItems[i];
     if (time - p^.TimeStart)>=(p^.Timeout) then
     begin
-      try
-        if p^.Code <> '' then
-        begin
+      if p^.Code <> '' then
+      begin
+        try
           FInstance.Execute(p^.Code)
-        end
-        else if Assigned(p^.Obj) then
-        begin
-          try
-            p^.Obj.Call(p^.ParentObj, nil, 0, AResult);
-          except
-            on e: Exception do
-              FInstance.OutputException(e);
-          end;
-          FInstance.GarbageCollector.UnProtect(p^.Obj);
-          if (p^.ParentObj.ValueType = bvtOBJECT) and Assigned(p^.ParentObj.Obj) then
-            FInstance.GarbageCollector.Protect(TBESENGarbageCollectorObject(p^.ParentObj.Obj));
+        except
+          on e: Exception do
+          FInstance.OutputException(e, 'timer event');
         end;
-      except
-        on e: Exception do
-          OutputBESENException(e, FInstance);
+      end
+      else if Assigned(p^.Obj) then
+      begin
+        try
+          p^.Obj.Call(p^.ParentObj, nil, 0, AResult);
+        except
+          on e: Exception do
+            FInstance.OutputException(e, 'timer event');
+        end;
+        FInstance.GarbageCollector.UnProtect(p^.Obj);
+        if (p^.ParentObj.ValueType = bvtOBJECT) and Assigned(p^.ParentObj.Obj) then
+          FInstance.GarbageCollector.Protect(TBESENGarbageCollectorObject(p^.ParentObj.Obj));
       end;
       FItems[i]:=FItems[Length(FItems)-1];
       Setlength(FItems, Length(FItems)-1);
@@ -528,12 +520,18 @@ begin
   end;
 end;
 
-procedure TBESENInstance.OutputException(e: Exception);
+procedure TBESENInstance.OutputException(e: Exception; Section: ansistring);
+var
+  s: ansistring;
 begin
+  s:='['+GetFilename+','+IntToStr(LineNumber)+'] '+e.Message;
+  if Section <> '' then
+    s:='['+Section+'] '+s;
+
   if Assigned(FSite) then
-    FSite.log(llError, '['+GetFilename+','+IntToStr(LineNumber)+'] '+e.Message)
-  else
-    dolog(llError, '[script] '+GetFilename+','+IntToStr(LineNumber)+': '+e.Message);
+    s:='['+FSite.Name+'] '+s;
+
+  dolog(llError, s);
 end;
 
 end.

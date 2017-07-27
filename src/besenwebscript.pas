@@ -384,7 +384,7 @@ begin
         on e: Exception do
         begin
           FResult:=FResult + ' error';
-          FInstance.OutputException(e);
+          FInstance.OutputException(e, 'webscript');
         end;
       end
     else
@@ -403,7 +403,7 @@ begin
   except
     on e: Exception do
     begin
-      FInstance.OutputException(e);
+      FInstance.OutputException(e, 'webscript');
     end;
   end;
 end;

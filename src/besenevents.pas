@@ -347,7 +347,7 @@ begin
     FEntries[i].Call(BESENObjectValue(FParent), @pval, 1, Result);
   except
     on e: Exception do
-      dolog(llError, 'Exception in event #'+IntToStr(FInstance.LineNumber)+': '+e.Message);
+      TBESENInstance(FInstance).OutputException(e, 'Event');
   end;
 end;
 

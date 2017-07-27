@@ -137,8 +137,15 @@ procedure TBESENXMLHttpRequest.FireReadyChange;
 var
   AResult: TBESENValue;
 begin
-  if Assigned(FOnReadyStateChange) then
-    FOnReadyStateChange.Call(BESENObjectValue(Self), nil, 0, AResult);
+  try
+    if Assigned(FOnReadyStateChange) then
+      FOnReadyStateChange.Call(BESENObjectValue(Self), nil, 0, AResult);
+  except
+    on e: Exception do
+    begin
+      TBESENInstance(Instance).OutputException(e, 'XMLHTTPRequest.onreadystatechange');
+    end;
+  end;
 end;
 
 procedure TBESENXMLHttpRequest.InitializeObject;
