@@ -131,6 +131,7 @@ implementation
 
 uses
   besenserverconfig,
+  besenprocess,
   xmlhttprequest,
   besenevents,
   besendb,
@@ -475,6 +476,8 @@ begin
   RegisterNativeObject('EventList', TBESENEventListener);
   RegisterNativeObject('DatabaseConnection', TBESENDatabaseConnection);
   RegisterNativeObject('XMLHTTPRequest', TBESENXMLHttpRequest);
+  RegisterNativeObject('Process', TBESENProcess);
+
   ObjectGlobal.RegisterNativeFunction('importScripts',NativeImportScripts,0,[]);
   ObjectGlobal.RegisterNativeFunction('setTimeout',FSystemObject.setTimeout,0,[]);
 end;

@@ -63,6 +63,8 @@ type
     { addWebsocket(url, script) - creates a new script instance & thread with "script" loaded.
          "script" must point to a filename in the site root directory }
     procedure addWebsocket(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { addWhitelistExecutable(filename) - adds an executable that may be executed in the site context }
+    procedure addWhitelistExecutable(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { updateCache() - rescans web directory for modified files and updates file-cache }
     procedure updateCache(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { fileExists(filename) - check if file exists. root is site's web folder }
@@ -142,6 +144,7 @@ implementation
 uses
   mimehelper,
   besenwebsocket,
+  besenprocess,
   logging;
 
 function StripBasePath(filename: ansistring): ansistring;
@@ -279,6 +282,16 @@ begin
 
   url:=TBESEN(Instance).ToStr(Arguments^[0]^);
   FSite.AddCustomHandler(BESENUTF16ToUTF8(url), TBESENWebsocket.Create(FServer, FSite, BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)), url));
+end;
+
+procedure TBESENWebserverSite.addWhitelistExecutable(
+  const ThisArgument: TBESENValue; Arguments: PPBESENValues;
+  CountArguments: integer; var ResultValue: TBESENValue);
+begin
+  if (CountArguments<1) or not Assigned(FSite) then
+    Exit;
+
+  FSite.AddWhiteListProcess(ansistring(TBESEN(Instance).ToStr(Arguments^[0]^)));
 end;
 
 procedure TBESENWebserverSite.updateCache(const ThisArgument: TBESENValue;

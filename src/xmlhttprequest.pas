@@ -126,7 +126,6 @@ begin
   FStatusText:=TBESENString(ResponseCode);
   FResponse:=TBESENString(Data);
   readyState:=3;
-  TBESEN(Instance).GarbageCollector.Unprotect(Self);
   if Assigned(FParentThread) then
     FParentThread.Callback(FireReadyChange)
 end;
@@ -149,6 +148,7 @@ begin
       TBESENInstance(Instance).OutputException(e, 'XMLHTTPRequest.onreadystatechange');
     end;
   end;
+  TBESEN(Instance).GarbageCollector.Unprotect(Self);
 end;
 
 procedure TBESENXMLHttpRequest.InitializeObject;

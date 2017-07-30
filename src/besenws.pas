@@ -259,7 +259,16 @@ begin
     end;
     dolog(llNotice, 'Loading complete');
 
-    if not testmode then
+    if testmode then
+    begin
+      ServerManager.Process;
+      Sleep(20);
+      ServerManager.Process;
+      Sleep(20);
+      ServerManager.Process;
+      Sleep(20);
+      ServerManager.Process;
+    end else
     while not shutdown do
     begin
       Sleep(20);

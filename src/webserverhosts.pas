@@ -74,6 +74,7 @@ type
       name: ansistring;
       value: ansistring;
     end;
+    FWhitelistedProcesses: array of ansistring;
     FForwards: TStringHashtable;
     FCustomStatusPages: array[CustomStatusPageMin..CustomStatusPageMax] of ansistring;
     procedure ClearItem(Key: KString; Data: Pointer; var Continue: Boolean);
@@ -92,6 +93,8 @@ type
     procedure AddCustomHandler(url: string; Handler: TEpollWorkerThread);
     procedure AddCustomStatusPage(StatusCode: Word; URI: string);
     procedure ApplyResponseHeader(const Response: THTTPReply);
+    procedure AddWhiteListProcess(const Executable: ansistring);
+    function IsProcessWhitelisted(const Executable: ansistring): Boolean;
     function GetCustomStatusPage(StatusCode: Word): ansistring;
     function GetStore(const Location: string): string;
     function PutStore(const Location, Data: string): Boolean;
@@ -426,6 +429,29 @@ begin
       Response.header.Add(FResponseHeaders[i].name, FResponseHeaders[i].Value);
   finally
     FCS.Leave;
+  end;
+end;
+
+procedure TWebserverSite.AddWhiteListProcess(const Executable: ansistring);
+var
+  i: Integer;
+begin
+  i:=Length(FWhitelistedProcesses);
+  SetLength(FWhitelistedProcesses, i+1);
+  FWhitelistedProcesses[i]:=Executable;
+end;
+
+function TWebserverSite.IsProcessWhitelisted(const Executable: ansistring
+  ): Boolean;
+var
+  i: Integer;
+begin
+  result:=False;
+  for i:=0 to Length(FWhitelistedProcesses)-1 do
+  if FWhitelistedProcesses[i] = Executable then
+  begin
+    result:=True;
+    Exit;
   end;
 end;
 

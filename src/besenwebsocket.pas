@@ -118,14 +118,17 @@ type
     procedure AddConnection(Client: TEPollSocket);
     procedure ClientData(Sender: THTTPConnection; data: ansistring);
     procedure ClientDisconnect(Sender: TEPollSocket);
+    procedure Initialize; override;
   public
     constructor Create(aParent: TWebserver; ASite: TWebserverSite; AFile: string; Url: TBESENString);
     destructor Destroy; override;
+    property Site: TWebserverSite read FSite;
   end;
 
 implementation
 
 uses
+  besenserverconfig,
   logging;
 
 { TBESENWebsocketHandler }
@@ -138,7 +141,6 @@ begin
   FFilename:=ASite.Path+AFile;
   FInstance:=nil;
   FURL:=Url;
-  LoadBESEN;
   inherited Create(aParent);
 end;
 
@@ -150,7 +152,7 @@ end;
 
 procedure TBESENWebsocket.LoadBESEN;
 begin
-  dolog(llDebug, 'Loading BESEN Websocket '+FFilename);
+  dolog(llDebug, 'Loading BESEN Websocket '+StripBasePath(FFilename));
   if Assigned(FInstance) then
     Exit;
 
@@ -179,7 +181,7 @@ begin
   if FInstance = nil then
     Exit;
 
-  dolog(llDebug, 'Unloading BESEN Websocket '+FFilename);
+  dolog(llDebug, 'Unloading BESEN Websocket '+StripBasePath(FFilename));
 
   while Length(FClients)>0 do
   begin
@@ -257,6 +259,12 @@ begin
    end;
 
   FInstance.GarbageCollector.Collect;
+end;
+
+procedure TBESENWebsocket.Initialize;
+begin
+  inherited Initialize;
+  LoadBESEN;
 end;
 
 function TBESENWebsocket.GetClient(AClient: THTTPConnection): TBESENWebsocketClient;
