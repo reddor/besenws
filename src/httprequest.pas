@@ -386,6 +386,7 @@ end;
 
 procedure THTTPRequestThread.Execute;
 begin
+  Sleep(50);
   if not FDoAbort then
     FClient.Query(FMethod, FURL);
   FState:=rsDone;
@@ -406,6 +407,7 @@ begin
   FState:=rsUnsent;
 
   FDoAbort:=False;
+
   if WaitForSend then
     FSemaphore:=SemaphoreInit
   else
@@ -428,7 +430,7 @@ end;
 
 function THTTPRequestThread.Send(const Data: ansistring): Boolean;
 begin
-  if (FState = rsOpened) and Assigned(FSemaphore) then
+  if (FState in [rsUnsent, rsOpened]) and Assigned(FSemaphore) then
   begin
     FData:=Data;
     SemaphorePost(FSemaphore);
