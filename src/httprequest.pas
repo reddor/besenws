@@ -13,16 +13,25 @@ uses
 
 type
   THTTPRequestError = (heConnectionFailed, heProtocolError, heSSLError, heForwardLoop, heInternalError);
-  THTTPRequestErrorCallback = procedure(ErrorType: THTTPRequestError; const Message: ansistring) of object;
-  THTTPRequestResponse = procedure(const ResponseCode, data: ansistring) of object;
-  THTTPRequestForward = function(var newUrl: ansistring): Boolean of object;
+
+  THTTPRequestErrorCallback = procedure(Sender: TObject; ErrorType: THTTPRequestError; const Message: ansistring) of object;
+  THTTPRequestResponse = procedure(Sender: TObject; const ResponseCode, data: ansistring) of object;
+  THTTPRequestForward = function(Sender: TObject; var newUrl: ansistring): Boolean of object;
+  THTTPRequestConnect = function(Sender: TObject; Host, Port: ansistring): Boolean of object;
+  THTTPRequestSent = function(Sender: TObject; Socket: TTCPBlockSocket): Boolean of object;
+  THTTPRequestEvent = function(Sender: TObject): Boolean of object;
 
   { THTTPClient }
 
   THTTPClient = class
   private
+    FFollowRedirect: Boolean;
+    FOnConnect: THTTPRequestConnect;
     FOnError: THTTPRequestErrorCallback;
     FOnForward: THTTPRequestForward;
+    FOnHeadersReceived: THTTPRequestEvent;
+    FOnLoading: THTTPRequestEvent;
+    FOnRequestSent: THTTPRequestSent;
     FOnResponse: THTTPRequestResponse;
     FTimeOut: longword;
     FUserAgent: ansistring;
@@ -30,24 +39,58 @@ type
     FResponse: THTTPReply;
     FSocket: TTCPBlockSocket;
   protected
-    function DoHandshake(const Host, Port: ansistring; https: Boolean): Boolean;
+    // open connection
+    function DoConnect(const Host, Port: ansistring; https: Boolean): Boolean;
+    function DoHandshake: Boolean;
     function ReadResponseBody: ansistring;
   public
     constructor Create;
     destructor Destroy; override;
-    function Get(Url: ansistring): ansistring;
+    { the method to initiate a query }
+    function Query(Method, Url: ansistring): ansistring;
+    { set request header field }
+    procedure SetRequestHeader(const header, value: ansistring);
+    { get response header field }
+    function GetResponseHeader(const header: ansistring): ansistring;
+    { return all response header fields }
+    function GetAllResponseHeaders: ansistring;
+    { property whether to automatically follow 301/302 redirects }
+    property FollowRedirect: Boolean read FFollowRedirect write FFollowRedirect;
+    { general purpose read/write/connect timeout value }
     property TimeOut: longword read FTimeOut write FTimeOut;
+    { reported user agent }
     property UserAgent: ansistring read FUserAgent write FUserAgent;
+    { fired when connection is established - called multiple times when following redirects! }
+    property OnConnect: THTTPRequestConnect read FOnConnect write FOnConnect;
+    { fired when the http request has been sent - also called multiple times when following redirects }
+    property OnRequestSent: THTTPRequestSent read FOnRequestSent write FOnRequestSent;
+    { fired when http resonse headers have been received }
+    property OnHeadersReceived: THTTPRequestEvent read FOnHeadersReceived write FOnHeadersReceived;
+    { fired when starting to read http body }
+    property OnLoading: THTTPRequestEvent read FOnLoading write FOnLoading;
+    { fired when any error occurs }
     property OnError: THTTPRequestErrorCallback read FOnError write FOnError;
+    { fired when http response has been received }
     property OnResponse: THTTPRequestResponse read FOnResponse write FOnResponse;
+    { fired when following http redirect }
     property OnForward: THTTPRequestForward read FOnForward write FOnForward;
   end;
 
-  { THTTPRequestThread }
+  THTTPRequestThreadState = (rsUnsent = 0, rsOpened = 1, rsHeadersReceived = 2, rsLoading = 3, rsDone = 4, rsRequestSend=10);
 
+  { THTTPRequestThread }
+  { invokes a single http request. url + method must be supplied in the constructor.
+    Thread is created suspended, "Start" must be called in order to get things running. }
   THTTPRequestThread = class(TThread)
   private
-    FURL: ansistring;
+    FDoAbort: Boolean;
+    FOnConnect: THTTPRequestConnect;
+    FOnHeadersReceived: THTTPRequestEvent;
+    FOnLoading: THTTPRequestEvent;
+    FOnRequestSent: THTTPRequestSent;
+    FSemaphore: Pointer;
+    FMethod, FURL, FData: ansistring;
+    FState: THTTPRequestThreadState;
     FClient: THTTPClient;
     function GetOnError: THTTPRequestErrorCallback;
     function GetOnForward: THTTPRequestForward;
@@ -59,13 +102,33 @@ type
     procedure SetOnResponse(AValue: THTTPRequestResponse);
     procedure SetTimeout(AValue: longword);
     procedure SetUserAgent(AValue: ansistring);
+    function OnConnectEvent(Sender: TObject; Host, Port: ansistring): Boolean;
+    function OnRequestSentEvent(Sender: TObject; Socket: TTCPBlockSocket): Boolean;
+    function OnHeadersReceivedEvent(Sender: TObject): Boolean;
+    function OnLoadingEvent(Sender: TObject): Boolean;
   protected
     procedure Execute; override;
   public
-    constructor Create(Url: ansistring);
+    constructor Create(Method, Url: ansistring; WaitForSend: Boolean = False);
     destructor Destroy; override;
+    { sends the request }
+    function Send(const Data: ansistring = ''): Boolean;
+    { aborts the request if it has already been sent }
+    procedure Abort;
+    { returns all response headers separated by CRLF }
+    function GetAllResponseHeaders: ansistring;
+    { returns the string containing the text of the specified header }
+    function GetResponseHeader(const header: ansistring): ansistring;
+    { sets the value of an HTTP request header - must be called before Send }
+    function SetRequestHeader(const header, value: ansistring): Boolean;
+    { current state of the thread - similar to XMLHttpRequest }
+    property State: THTTPRequestThreadState read FState;
     property Timeout: longword read GetTimeout write SetTimeout;
     property UserAgent: ansistring read GetUserAgent write SetUserAgent;
+    property OnConnect: THTTPRequestConnect read FOnConnect write FOnConnect;
+    property OnRequestSent: THTTPRequestSent read FOnRequestSent write FOnRequestSent;
+    property OnHeadersReceived: THTTPRequestEvent read FOnHeadersReceived write FOnHeadersReceived;
+    property OnLoading: THTTPRequestEvent read FOnLoading write FOnLoading;
     property OnError: THTTPRequestErrorCallback read GetOnError write SetOnError;
     property OnResponse: THTTPRequestResponse read GetOnResponse write SetOnResponse;
     property OnForward: THTTPRequestForward read GetOnForward write SetOnForward;
@@ -146,16 +209,14 @@ begin
 
   Output:='';
   I:=Z_OK;
-  while (I=Z_OK) and (InflateStream.avail_in>0) do
+  while (I=Z_OK) do
   begin
     Setlength(Temp, 65536);
     InflateStream.next_out:=@Temp[1];
     InflateStream.avail_out:=Length(temp);
-    while (InflateStream.avail_out>0)and(InflateStream.avail_in>0) do
+    while (InflateStream.avail_out>0) and (I = Z_OK) do
     begin
       I:=inflate(InflateStream, Z_NO_FLUSH);
-      if I<>Z_OK then
-        Break;
     end;
     Setlength(Temp, Length(Temp) - InflateStream.avail_out);
     Output:=Output + Temp;
@@ -205,7 +266,7 @@ begin
   result:='';
   with THTTPClient.Create do
   try
-    result:=Get(URL);
+    result:=Query('GET', URL);
   finally
     Free;
   end;
@@ -263,40 +324,172 @@ begin
   FClient.UserAgent:=AValue;
 end;
 
-procedure THTTPRequestThread.Execute;
+function THTTPRequestThread.OnConnectEvent(Sender: TObject; Host,
+  Port: ansistring): Boolean;
 begin
-  FClient.Get(FURL);
+  FState:=rsOpened;
+  if Assigned(FOnConnect) then
+  begin
+    if not FOnConnect(Sender, Host, Port) then
+      FDoAbort:=True;
+  end;
+  if not FDoAbort then
+  if Assigned(FSemaphore) then
+  begin
+    SemaphoreWait(FSemaphore);
+    SemaphoreDestroy(FSemaphore);
+    FSemaphore:=nil;
+  end;
+
+  if FData<>'' then
+    FClient.SetRequestHeader('Content-length', IntToStr(Length(FData)));
+
+  result:=not FDoAbort;
 end;
 
-constructor THTTPRequestThread.Create(Url: ansistring);
+function THTTPRequestThread.OnRequestSentEvent(Sender: TObject;
+  Socket: TTCPBlockSocket): Boolean;
+begin
+  if Assigned(FOnRequestSent) then
+    if not FOnRequestSent(Sender, Socket) then
+    begin
+      Abort;
+    end;
+
+  if (not FDoAbort) and(FData <> '') then
+    Socket.SendString(FData);
+
+  result:=not FDoAbort;
+end;
+
+function THTTPRequestThread.OnHeadersReceivedEvent(Sender: TObject): Boolean;
+begin
+  FState:=rsHeadersReceived;
+
+  if Assigned(FOnHeadersReceived) then
+    if not FOnHeadersReceived(Sender) then
+     FDoAbort:=True;
+
+  result:=not FDoAbort;
+end;
+
+function THTTPRequestThread.OnLoadingEvent(Sender: TObject): Boolean;
+begin
+  FState:=rsLoading;
+
+  if Assigned(FOnLoading) then
+    if not FOnLoading(Sender) then
+     FDoAbort:=True;
+
+  result:=not FDoAbort;
+end;
+
+procedure THTTPRequestThread.Execute;
+begin
+  if not FDoAbort then
+    FClient.Query(FMethod, FURL);
+  FState:=rsDone;
+end;
+
+constructor THTTPRequestThread.Create(Method, Url: ansistring;
+  WaitForSend: Boolean);
 begin
   FClient:=THTTPClient.Create;
+  FClient.OnConnect:=OnConnectEvent;
+  FClient.OnRequestSent:=OnRequestSentEvent;
+  FClient.OnHeadersReceived:=OnHeadersReceivedEvent;
+  FClient.OnLoading:=OnLoadingEvent;
+
+  FMethod:=Method;
   FURL:=Url;
-  inherited Create(True);
+  FData:='';
+  FState:=rsUnsent;
+
+  FDoAbort:=False;
+  if WaitForSend then
+    FSemaphore:=SemaphoreInit
+  else
+    FSemaphore:=nil;
+  inherited Create(true);
 end;
 
 destructor THTTPRequestThread.Destroy;
 begin
+  Abort;
   WaitFor;
   FClient.Free;
+  if Assigned(FSemaphore) then
+  begin
+    SemaphoreDestroy(FSemaphore);
+    FSemaphore:=nil;
+  end;
   inherited Destroy;
+end;
+
+function THTTPRequestThread.Send(const Data: ansistring): Boolean;
+begin
+  if (FState = rsOpened) and Assigned(FSemaphore) then
+  begin
+    FData:=Data;
+    SemaphorePost(FSemaphore);
+    FState:=rsRequestSend;
+    result:=True;
+  end else
+    result:=False;
+end;
+
+procedure THTTPRequestThread.Abort;
+begin
+  FDoAbort:=True;
+  Send;
+  if Suspended then
+   Start;
+end;
+
+function THTTPRequestThread.SetRequestHeader(const header, value: ansistring
+  ): Boolean;
+begin
+  if FState in [rsUnsent, rsOpened] then
+  begin
+    FClient.SetRequestHeader(header, value);
+    result:=True;
+  end else
+    result:=False;
+end;
+
+function THTTPRequestThread.GetResponseHeader(const header: ansistring
+  ): ansistring;
+begin
+  if FState in [rsHeadersReceived, rsLoading, rsDone] then
+    result:=FClient.GetResponseHeader(header)
+  else
+    result:='';
+end;
+
+function THTTPRequestThread.GetAllResponseHeaders: ansistring;
+begin
+  if FState in [rsHeadersReceived, rsLoading, rsDone] then
+    result:=FClient.GetAllResponseHeaders
+  else
+    result:='';
 end;
 
 
 { THTTPClient }
 
-function THTTPClient.DoHandshake(const Host, Port: ansistring;
-  https: Boolean): Boolean;
-var
-  s: ansistring;
+function THTTPClient.DoConnect(const Host, Port: ansistring; https: Boolean
+  ): Boolean;
 begin
+  // todo: keep connection open and check if socket is still connected,and the host hasn't changed
+  // (bonus todo: look up ip and check keep active connection if it doesn't differ)
+
   result:=False;
   FSocket.Connect(Host, Port);
 
   if FSocket.LastError<>0 then
   begin
     if Assigned(FOnError) then
-      FOnError(heConnectionFailed, FSocket.LastErrorDesc);
+      FOnError(Self, heConnectionFailed, FSocket.LastErrorDesc);
     Exit;
   end;
 
@@ -307,33 +500,62 @@ begin
     if FSocket.LastError<>0 then
     begin
       if Assigned(FOnError) then
-        FOnError(heSSLError, FSocket.LastErrorDesc);
+        FOnError(Self, heSSLError, FSocket.LastErrorDesc);
       Exit;
     end;
   end;
+
+  if Assigned(FOnConnect) then
+  begin
+    if not FOnConnect(Self, Host, Port) then
+      Exit;
+  end;
+
+  result:=True;
+end;
+
+function THTTPClient.DoHandshake: Boolean;
+var
+  s: ansistring;
+begin
+  result:=False;
+
   // send request header and read reply
   FSocket.SendString(FRequest.Generate());
+
+  if Assigned(FOnRequestSent) then
+  begin
+    if not FOnRequestSent(Self, FSocket) then
+      Exit;
+  end;
+
   s:=FSocket.RecvTerminated(FTimeOut, #13#10#13#10);
 
   if s='' then
   begin
     if Assigned(FOnError) then
-      FOnError(heProtocolError, 'No data received');
+      FOnError(Self, heProtocolError, 'No data received');
     Exit;
   end;
 
   if not FResponse.Read(s) then
   begin
     if Assigned(FOnError) then
-      FOnError(heProtocolError, 'Invalid HTTP response');
+      FOnError(Self, heProtocolError, 'Invalid HTTP response');
     Exit;
   end;
 
   if (FResponse.version <> 'HTTP/1.1') and (FResponse.Version <> 'HTTP/1.0') then
   begin
     if Assigned(FOnError) then
-      FOnError(heProtocolError, 'Invalid Protocol Version');
+      FOnError(Self, heProtocolError, 'Invalid Protocol Version');
     Exit;
+  end;
+
+  if Assigned(FOnHeadersReceived) then
+  begin
+    if not FOnHeadersReceived(Self) then
+      Exit;
   end;
 
   result:=True;
@@ -373,7 +595,7 @@ begin
         if FSocket.RecvTerminated(FTimeOut, #13#10) <> '' then
         begin
           if Assigned(FOnError) then
-            FOnError(heProtocolError, 'Unexpected data between chunks');
+            FOnError(Self, heProtocolError, 'Unexpected data between chunks');
           result:='';
         end;
       end;
@@ -393,7 +615,7 @@ begin
       result:=s
     else begin
       if Assigned(FOnError) then
-        FOnError(heProtocolError, 'gzip inflate error');
+        FOnError(Self, heProtocolError, 'gzip inflate error');
       Exit;
     end;
   end;
@@ -401,7 +623,7 @@ begin
 end;
 
 
-function THTTPClient.Get(Url: ansistring): ansistring;
+function THTTPClient.Query(Method, Url: ansistring): ansistring;
 var
   Proto, Host, Port, uri, s: ansistring;
   Forwards: Integer;
@@ -412,7 +634,7 @@ begin
   try
     ParseUrl(Url, Proto, Host, port, uri);
 
-    FRequest.action:='GET';
+    FRequest.action:=Method;
     FRequest.header.Add('Host', Host);
     FRequest.header.Add('Connection', 'close');
     FRequest.header.Add('User-Agent', FUserAgent);
@@ -427,14 +649,14 @@ begin
       if Forwards>10 then
       begin
         if Assigned(FOnError) then
-          FOnError(heForwardLoop, '');
+          FOnError(Self, heForwardLoop, '');
         Exit;
       end;
 
       if (Proto <> '') and (Proto <> 'http') and (Proto <> 'https') then
       begin
         if Assigned(FOnError) then
-          FOnError(heProtocolError, 'Invalid protocol');
+          FOnError(Self, heProtocolError, 'Invalid protocol');
         Exit;
       end;
 
@@ -450,23 +672,26 @@ begin
         FRequest.parameters:='';
       end;
 
-      if not DoHandshake(Host, Port, Proto='https') then
+      if not DoConnect(Host, Port, Proto='https') then
+        Exit;
+
+      if not DoHandshake then
         Exit;
 
       // check if we are being forwarded
-      if (Pos('302', FResponse.response)=1)or(Pos('301', FResponse.response)=1) then
+      if ((Pos('302', FResponse.response)=1)or(Pos('301', FResponse.response)=1)) and FFollowRedirect then
       begin
         FSocket.CloseSocket;
         s:=FResponse.header['Location'];
         if s = '' then
         begin
           if Assigned(FOnError) then
-            FOnError(heProtocolError, 'No forward location specified');
+            FOnError(Self, heProtocolError, 'No forward location specified');
           Exit;
         end;
         if Assigned(FOnForward) then
         begin
-          if not FOnForward(s) then
+          if not FOnForward(Self, s) then
             Exit;
         end;
         ParseUrl(s, Proto, Host, port, url);
@@ -474,14 +699,31 @@ begin
       end;
       result:=ReadResponseBody();
       if Assigned(FOnResponse) then
-        FOnResponse(FResponse.response, result);
+        FOnResponse(Self, FResponse.response, result);
       Break;
     until false;
+
+    FSocket.CloseSocket;
   except
     on e: Exception do
       if Assigned(FOnError) then
-        FOnError(heInternalError, e.Message);
+        FOnError(Self, heInternalError, e.Message);
   end;
+end;
+
+procedure THTTPClient.SetRequestHeader(const header, value: ansistring);
+begin
+  FRequest.header.Add(header, value);
+end;
+
+function THTTPClient.GetResponseHeader(const header: ansistring): ansistring;
+begin
+  result:=FResponse.header[header];
+end;
+
+function THTTPClient.GetAllResponseHeaders: ansistring;
+begin
+  result:=FResponse.header.Generate;
 end;
 
 constructor THTTPClient.Create;
@@ -490,6 +732,7 @@ begin
   FRequest:=THTTPRequest.Create;
   FResponse:=THTTPReply.Create;
   FTimeOut:=10000;
+  FFollowRedirect:=True;
   FUserAgent:='Mozilla/4.0 (MSIE 6.0; Windows NT 5.0)'; // ie6 on win2000.. that oughta be good
 end;
 
