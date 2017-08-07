@@ -35,7 +35,9 @@ type
 
   TBESENProcess = class(TBESENNativeObject)
   private
+    FHasTerminated: Boolean;
     FOnData: TBESENObjectFunction;
+    FOnTerminate: TBESENObjectFunction;
     FParentThread: TEpollWorkerThread;
     FParentSite: TWebserverSite;
     FProcess: TProcess;
@@ -52,6 +54,7 @@ type
     procedure write(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure writeln(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     property onData: TBESENObjectFunction read FOnData write FOnData;
+    property onTerminate: TBESENObjectFunction read FOnTerminate write FOnTerminate;
   end;
 
 implementation
@@ -80,12 +83,16 @@ begin
     begin
       Aarg:=BESENStringValue(TBESENString(buf));
       Arg:=@Aarg;
-      FTarget.onData.Call(BESENObjectValue(FTarget), @Arg, 1, AResult);
+      try
+        FTarget.onData.Call(BESENObjectValue(FTarget), @Arg, 1, AResult);
+      except
+        on e: Exception do
+          TBESENInstance(FTarget.Instance).OutputException(e, 'Process.onData');
+      end;
     end;
   end else
   begin
-
-    dolog(llDebug, 'Stopping process as output pipe is broken');
+    // dolog(llDebug, 'Stopping process as output pipe is broken');
     FTarget.StopProcess;
   end;
 end;
@@ -130,6 +137,8 @@ begin
   FParentThread:=nil;
   FParentSite:=nil;
 
+  FHasTerminated:=True;
+
   if Instance is TBESENInstance then
   begin
     if Assigned(TBESENInstance(Instance).Thread) and
@@ -145,6 +154,9 @@ begin
 
   if Assigned(FParentSite) then
   begin
+    if(pos('/', s)<>1) then
+      s:=FParentSite.Path+'bin/'+s;
+
     if not FParentSite.IsProcessWhitelisted(s) then
       raise EBESENError.Create('This executable may not be started from this realm');
 
@@ -160,22 +172,34 @@ end;
 
 procedure TBESENProcess.FinalizeObject;
 begin
+  FOnTerminate:=nil;
   StopProcess;
   inherited FinalizeObject;
 end;
 
 procedure TBESENProcess.StopProcess;
+var
+  AResult: TBESENValue;
 begin
   if Assigned(FProcess) then
   begin
     if Assigned(FDataHandler) then
       FreeandNil(FDataHandler);
 
-    if not FProcess.Running then
+    if FHasTerminated then
       Exit;
 
     dolog(llDebug, 'Terminating process '+FProcess.Executable);
     FProcess.Terminate(0);
+    FHasTerminated:=True;
+
+    if Assigned(FOnTerminate) then
+    try
+      FOnTerminate.Call(BESENObjectValue(Self), nil, 0, AResult);
+    except
+      on e: Exception do
+        TBESENInstance(Instance).OutputException(e, 'Process.onTerminate');
+    end;
   end;
 end;
 
@@ -198,6 +222,8 @@ begin
     end;
 
     FProcess.Execute;
+    FHasTerminated:=False;
+
     if Assigned(FDataHandler) then
     begin
       FDataHandler.SetDataHandle(FProcess.Output.Handle);
