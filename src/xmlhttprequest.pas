@@ -263,10 +263,12 @@ procedure TBESENXMLHttpRequest.open(const ThisArgument: TBESENValue;
   Arguments: PPBESENValues; CountArguments: integer;
   var ResultValue: TBESENValue);
 begin
-  if CountArguments<1 then
+  resultValue:=BESENNullValue;
+  if CountArguments<2 then
     Exit;
 
   DoConnect(ansistring(TBESEN(Instance).ToStr(Arguments^[0]^)), ansistring(TBESEN(Instance).ToStr(Arguments^[1]^)));
+  resultValue:=BESENBooleanValue(True);
 end;
 
 procedure TBESENXMLHttpRequest.overrideMimeType(
@@ -286,8 +288,8 @@ begin
       FRequest.Send(ansistring(TBESEN(Instance).ToStr(Arguments^[0]^)))
     else
       FRequest.Send('');
-
-    FRequest.WaitFor;
+    if not Assigned(FParentThread) then
+      FRequest.WaitFor;
   end;
 end;
 
