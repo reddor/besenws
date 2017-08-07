@@ -77,6 +77,7 @@ type
     property maxPongTime: Integer read GetPongTime write SetPongTime;
   end;
 
+  TBESENWebsocket = class;
   { TBESENWebsocketHandler }
 
   { global "handler" object for websocket scripts }
@@ -87,6 +88,9 @@ type
     FOnDisconnect: TBESENObjectFunction;
     FOnRequest: TBESENObjectFunction;
     FUrl: TBESENString;
+    FParentThread: TBESENWebsocket;
+    function GetUnloadTimeout: Integer;
+    procedure SetUnloadTimeout(AValue: Integer);
   published
     { onRequest = function(client) - callback function for an incoming regular http request }
     property onRequest: TBESENObjectFunction read FOnRequest write FOnRequest;
@@ -97,12 +101,14 @@ type
     { onDisconnect = function(client) - callback function when a client disconnects }
     property onDisconnect: TBESENObjectFunction read FOnDisconnect write FOnDisconnect;
     property url: TBESENString read FUrl;
+    property unloadTimeout: Integer read GetUnloadTimeout write SetUnloadTimeout;
   end;
 
   { TBESENWebsocket }
 
   TBESENWebsocket = class(TEPollWorkerThread)
   private
+    FAutoUnload: Integer;
     FFilename: string;
     FSite: TWebserverSite;
     FInstance: TBESENInstance;
@@ -123,6 +129,7 @@ type
     constructor Create(aParent: TWebserver; ASite: TWebserverSite; AFile: string; Url: TBESENString);
     destructor Destroy; override;
     property Site: TWebserverSite read FSite;
+    property AutoUnload: Integer read FAutoUnload write FAutoUnload;
   end;
 
 implementation
@@ -130,6 +137,18 @@ implementation
 uses
   besenserverconfig,
   logging;
+
+{ TBESENWebsocketHandler }
+
+function TBESENWebsocketHandler.GetUnloadTimeout: Integer;
+begin
+  result:=FParentThread.AutoUnload;
+end;
+
+procedure TBESENWebsocketHandler.SetUnloadTimeout(AValue: Integer);
+begin
+  FParentThread.AutoUnload:=AValue;
+end;
 
 { TBESENWebsocketHandler }
 
@@ -141,6 +160,7 @@ begin
   FFilename:=ASite.Path+AFile;
   FInstance:=nil;
   FURL:=Url;
+  FAutoUnload:=20000;
   inherited Create(aParent);
 end;
 
@@ -160,6 +180,7 @@ begin
   FHandler:=TBESENWebsocketHandler.Create(FInstance);
   FHandler.InitializeObject;
   FHandler.FUrl:=FUrl;
+  FHandler.FParentThread:=Self;
 
   FInstance.GarbageCollector.Add(TBESENObject(FHandler));
   FInstance.GarbageCollector.Protect(TBESENObject(FHandler));
@@ -341,7 +362,8 @@ begin
     if (Length(FClients)>0) then
       FIdleTicks:=0
     else begin
-      if FIdleTicks * EpollWaitTime > 20000 then
+      if FAutoUnload>0 then
+      if FIdleTicks * EpollWaitTime > FAutoUnload then
         UnloadBESEN
       else
         inc(FIdleTicks);
