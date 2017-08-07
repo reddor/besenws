@@ -287,11 +287,17 @@ end;
 procedure TBESENWebserverSite.addWhitelistExecutable(
   const ThisArgument: TBESENValue; Arguments: PPBESENValues;
   CountArguments: integer; var ResultValue: TBESENValue);
+var
+  s: ansistring;
 begin
   if (CountArguments<1) or not Assigned(FSite) then
     Exit;
 
-  FSite.AddWhiteListProcess(ansistring(TBESEN(Instance).ToStr(Arguments^[0]^)));
+  s:=ansistring(TBESEN(Instance).ToStr(Arguments^[0]^));
+  if Pos('/', s)<>1 then
+    s:=FSite.Path+'bin/'+s;
+
+  FSite.AddWhiteListProcess(s);
 end;
 
 procedure TBESENWebserverSite.updateCache(const ThisArgument: TBESENValue;
