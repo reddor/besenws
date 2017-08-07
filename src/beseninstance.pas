@@ -475,7 +475,7 @@ begin
   ObjectGlobal.put('system', BESENObjectValue(FSystemObject), false);
   RegisterNativeObject('EventList', TBESENEventListener);
   RegisterNativeObject('DatabaseConnection', TBESENDatabaseConnection);
-  RegisterNativeObject('XMLHTTPRequest', TBESENXMLHttpRequest);
+  RegisterNativeObject('XMLHttpRequest', TBESENXMLHttpRequest);
   RegisterNativeObject('Process', TBESENProcess);
 
   ObjectGlobal.RegisterNativeFunction('importScripts',NativeImportScripts,0,[]);
