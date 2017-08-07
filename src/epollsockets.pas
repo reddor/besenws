@@ -564,6 +564,7 @@ begin
 
   Initialize;
 
+  try
   while (not Terminated) do
   begin
     FSocketFreeQueuePos:=0;
@@ -618,6 +619,14 @@ begin
     for i:=0 to FSocketFreeQueuePos-1 do
       RemoveSocket(FSocketFreeQueue[i]);
     ThreadTick;
+  end;
+
+  except
+    on E: Exception do
+    begin
+      dolog(llFatal, 'Epoll-thread died with unhandled exception: '+e.Message);
+      dolog(llFatal, 'You should probably restart the server now');
+    end;
   end;
   j:=High(FSockets);
   while j>=0 do
