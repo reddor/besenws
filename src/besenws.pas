@@ -46,7 +46,8 @@ uses
   externalproc,
   fcgibridge,
   {$ENDIF}
-  sslclass;
+  sslclass,
+  buildinfo;
 
 {.$R *.res}
 
@@ -240,7 +241,7 @@ begin
       isdebug:=True;
     end;
 
-    dolog(llNotice, 'besenws Build '+{$I %DATE%});
+    dolog(llNotice, 'besenws Build '+BuildString);
     if not isdebug then
     begin
       ForkToBackground;
