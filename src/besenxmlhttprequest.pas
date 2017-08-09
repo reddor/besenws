@@ -1,4 +1,4 @@
-unit xmlhttprequest;
+unit besenxmlhttprequest;
 
 {$mode delphi}
 
@@ -57,7 +57,6 @@ type
     procedure overrideMimeType(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure send(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure setRequestHeader(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
-
     property onreadystatechange: TBESENObjectFunction read FOnReadyStateChange write FOnReadyStateChange;
     property readyState: Longword read FReadyState;
     property response: TBESENString read FResponse;
