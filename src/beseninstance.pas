@@ -130,6 +130,7 @@ type
 implementation
 
 uses
+  besenclientsocket,
   besenserverconfig,
   besenprocess,
   besenxmlhttprequest,
@@ -444,7 +445,9 @@ begin
     gzip:=False;
     s:=BESENUTF16ToUTF8(ToStr(Arguments^[i]^));
     if Pos('./', s)=1 then
-      Delete(s, 1, 1);
+      Delete(s, 1, 1)
+    else if Pos('/', s)<>1 then
+      s:='/' + s;
 
     SetFilename(s);
     if Assigned(FSite) and (FSite.Files.GetFile(s, data, gzip)>0) then
@@ -476,6 +479,7 @@ begin
   RegisterNativeObject('EventList', TBESENEventListener);
   RegisterNativeObject('DatabaseConnection', TBESENDatabaseConnection);
   RegisterNativeObject('XMLHttpRequest', TBESENXMLHttpRequest);
+  RegisterNativeObject('ClientSocket', TBESENClientSocket);
   RegisterNativeObject('Process', TBESENProcess);
 
   ObjectGlobal.RegisterNativeFunction('importScripts',NativeImportScripts,0,[]);
