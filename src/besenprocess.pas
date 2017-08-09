@@ -92,7 +92,6 @@ begin
     end;
   end else
   begin
-    // dolog(llDebug, 'Stopping process as output pipe is broken');
     FTarget.StopProcess;
   end;
 end;
