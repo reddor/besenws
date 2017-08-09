@@ -132,7 +132,7 @@ implementation
 uses
   besenserverconfig,
   besenprocess,
-  xmlhttprequest,
+  besenxmlhttprequest,
   besenevents,
   besendb,
   logging;
