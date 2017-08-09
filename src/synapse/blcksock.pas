@@ -2293,7 +2293,7 @@ begin
     {$ELSE}
     Setlength(Result, Len);
     x := RecvBufferEx(Pointer(Result), Len , Timeout);
-    if FLastError = 0 then
+    if x > 0 then
       SetLength(Result, x)
     else
       Result := '';
