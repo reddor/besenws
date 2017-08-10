@@ -79,7 +79,7 @@ type
     FVersion: TWebsocketVersion;
     FIdletime: Integer;
     hassegmented: Boolean;
-    target, FWSData, FPathUrl: ansistring;
+    target, FWSData: ansistring;
     FLag: Integer;
     FServer: TWebserver;
     FHost: TWebserverSite;
@@ -709,7 +709,7 @@ begin
     if FContentLength>0 then
     begin
       // post size limit, as we keep everything in memory
-      if FContentLength > 10 then
+      if FContentLength > 1024 * 1024 then
       begin
         SendStatusCode(413);
         FKeepAlive:=False;
@@ -966,7 +966,6 @@ end;
 function THTTPConnection.GotCompleteRequest: Boolean;
 var
   i: Integer;
-  finished: Boolean;
 begin
   result:=False;
   if (not FGotHeader) and (FContentLength <= 0) then
@@ -981,7 +980,6 @@ begin
       Exit;
     end;
   end else
-  //if FGotHeader or (FContentLength > 0) then
   begin
     if FContentLength = -1 then
       FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
@@ -1190,6 +1188,7 @@ begin
     if not FHeader.POSTData.readstr(Data) then
       dolog(llError, 'Got invalid POST data');
     FPostData:='';
+    Sender.OnPostData:=nil;
     if not ExecuteScript(Target) then
       SendStatusCode(500);
   end;
@@ -1258,6 +1257,7 @@ end;
 procedure THTTPConnection.CheckMessageBody;
 var
   finished: Boolean;
+  s: ansistring;
 begin
   if FContentLength = -1 then
     FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
@@ -1269,14 +1269,16 @@ begin
     finished:=Length(FInBuffer)>=FContentLength;
     if Length(FInBuffer)<=FContentLength then
     begin
-      FOnPostData(Self, FInBuffer, finished);
+      s:=FInBuffer;
       Dec(FContentLength, Length(FInBuffer));
       FInBuffer:='';
+      FOnPostData(Self, s, finished);
     end else
     begin
-      FOnPostData(Self, Copy(FInBuffer, 1, FContentLength), finished);
+      s:=Copy(FInBuffer, 1, FContentLength);
       Delete(FInBuffer, 1, FContentLength);
       FContentLength:=0;
+      FOnPostData(Self, s, finished);
     end;
     if finished then
       FOnPostData:=nil;
