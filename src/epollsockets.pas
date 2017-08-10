@@ -437,7 +437,7 @@ begin
       fpGetPeerName(FSocket, @name, @Len);
       FRemoteIP:=GetSinIP(Name);
       FRemoteIPPort:=FRemoteIP+'.'+IntToStr(GetSinPort(Name));
-      result:=FRemoteIP;
+      result:=FRemoteIPPort;
     end;
   end;
 end;
