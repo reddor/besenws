@@ -321,7 +321,7 @@ begin
 
   aclient.InitializeObject;
   aclient.FConnection:=THTTPConnection(Client);
-  aclient.FConnection.OnData:=ClientData;
+  aclient.FConnection.OnWebsocketData:=ClientData;
   aclient.FConnection.OnDisconnect:=ClientDisconnect;
 
   a:=@v;

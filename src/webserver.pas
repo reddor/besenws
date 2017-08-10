@@ -39,11 +39,6 @@ uses
   MD5,
   filecache,
   webserverhosts,
-{$IFDEF CGISUPPORT}
-  externalproc,
-  fastcgi,
-  fcgibridge,
-{$ENDIF}
   sslclass,
   logging;
 
@@ -65,7 +60,8 @@ type
 
   TWebserver = class;
   THTTPConnection = class;
-  TWebsocketDataReceived = procedure(Sender: THTTPConnection; Data: ansistring) of object;
+  THTTPConnectionDataReceived = procedure(Sender: THTTPConnection; Data: ansistring) of object;
+  THTTPConnectionPostDataReceived = procedure(Sender: THTTPConnection; Data: ansistring; finished: Boolean) of object;
 
   { THTTPConnection }
   THTTPConnection = class(TEPollSocket)
@@ -73,7 +69,8 @@ type
     FInBuffer: ansistring;
     FIdent: ansistring;
     FMaxPongTime: Integer;
-    FOnData: TWebsocketDataReceived;
+    FOnPostData: THTTPConnectionPostDataReceived;
+    FOnWebsocketData: THTTPConnectionDataReceived;
     FPingIdleTime: Integer;
     FHeader: THTTPRequest;
     FReply: THTTPReply;
@@ -89,18 +86,14 @@ type
     FContentLength: Integer;
     FGotHeader: Boolean;
     FLastPing: longint;
-{$IFDEF CGISUPPORT}
-    FCGI: TExternalProc;
-    FCGIPostDataLength: Integer;
-    function CreateEnvVars: ansistring;
-    procedure SendCGI(const Data: ansistring);
-    procedure SendCGIPostData;
-{$ENDIF}
+    FPostData: ansistring;
+    procedure CheckMessageBody;
     function GotCompleteRequest: Boolean;
     function IsExternalScript: Boolean;
     procedure ProcessHixie76;
     function ReadRFCWebsocketFrame(out header: TWebsocketFrame; out HeaderSize: Integer): Boolean;
     procedure ProcessRFC;
+    procedure WebscriptPostHandler(Sender: THTTPConnection; Data: ansistring; finished: Boolean);
   protected
     procedure ProcessData(const Buffer: Pointer; BufferLength: Integer); override;
     procedure ProcessRequest;
@@ -120,12 +113,14 @@ type
     procedure SendWS(data: ansistring; Flush: Boolean = True);
     procedure SendContent(mimetype, data: ansistring; result: ansistring = '200 OK');
     property wsVersion: TWebsocketVersion read FVersion write FVersion;
-    property OnData: TWebsocketDataReceived read FOnData write FOnData;
+    property OnWebsocketData: THTTPConnectionDataReceived read FOnWebsocketData write FOnWebsocketData;
+    property OnPostData: THTTPConnectionPostDataReceived read FOnPostData write FOnPostData;
     property Header: THTTPRequest read FHeader;
     property Lag: Integer read FLag write FLag;
     property WebsocketPingIdleTime: Integer read FPingIdleTime write FPingIdleTime;
     property WebsocketMaxPongTime: Integer read FMaxPongTime write FMaxPongTime;
     property Reply: THTTPReply read FReply;
+    property KeepAlive: Boolean read fkeepalive;
   end;
 
   { TWebserverListener }
@@ -149,7 +144,7 @@ type
     property SSL: Boolean read FSSL;
   end;
 
-  {$IFDEF CGISUPPORT}
+  {$IFDEF CGASUPPORT}
   { TwebserverFCGIBridgeProcess }
   TwebserverFCGIBridgeProcess = class
   private
@@ -312,7 +307,7 @@ end;
 
 { TWebserverWorkerThread }
 
-{$IFDEF CGISUPPORT}
+{$IFDEF CGASUPPORT}
 
 { TwebserverFCGIBridgeProcess }
 
@@ -448,7 +443,7 @@ begin
     if FGotHeader then
     begin
       FGotHeader:=False;
-      FContentLength:=-1;
+      // FContentLength:=-1;
 
       FReply.Clear(FHeader.version);
 
@@ -682,11 +677,6 @@ begin
     begin
       target := target + 'index.jsp';
       FFile:=FHost.Files.Find(target);
-    end else
-    if FHost.Files.Exists(target + 'index.php') then
-    begin
-      target := target + 'index.php';
-      FFile:=FHost.Files.Find(target);
     end{ else
     begin
       SendStatusCode(404);
@@ -701,11 +691,6 @@ begin
 
     if Assigned(FFile) then
     begin
-      if Lowercase(ExtractFileExt(s)) = '.php' then
-      begin
-        target:=s;
-        FPathUrl:=PathUrl;
-      end else
       begin
         Fhost.Files.Release(FFile);
         SendStatusCode(404);
@@ -718,29 +703,27 @@ begin
     end;
   end;
 
-  {$IFDEF CGISUPPORT}
-  if Lowercase(ExtractFileExt(target)) = '.php' then
-  begin
-    if Assigned(FCGI) then
-     FreeandNil(FCGI);
-
-    FCGI:=TExternalProc.Create(Parent, '/usr/bin/php-cgi', '-e', CreateEnvVars);
-
-    if FCGIPostDataLength>0 then
-    begin
-      SendCGIPostData;
-    end;
-
-    FCGI.OnData:=SendCGI;
-    Exit;
-  end;
-  {$ENDIF}
-
   if Lowercase(ExtractFileExt(target)) = '.jsp' then
   begin
     FHost.Files.Release(FFile);
+    if FContentLength>0 then
+    begin
+      // post size limit, as we keep everything in memory
+      if FContentLength > 10 then
+      begin
+        SendStatusCode(413);
+        FKeepAlive:=False;
+        Exit;
+      end;
+      // we got a message body which we have not yet read.. we now have to register
+      // a POSTdata handler to read all of it...
+      FOnPostData:=WebscriptPostHandler;
+      // we might already have received the complete message body, better check
+      CheckMessageBody;
+      Exit;
+    end;
     if not ExecuteScript(Target) then
-      SendStatusCode(404);
+      SendStatusCode(500);
     Exit;
   end;
 
@@ -915,17 +898,14 @@ begin
   FWSData:='';
   FIdent:='';
   FContentLength:=-1;
+  FPostData:='';
   FGotHeader:=False;
-  FOnData:=nil;
+  FOnWebsocketData:=nil;
+  FOnPostData:=nil;
   FVersion:=wvNone;
   FTag:=nil;
   FWSData:='';
   FInBuffer:='';
-  {$IFDEF CGISUPPORT}
-  FCGIPostDataLength:=0;
-  if Assigned(FCGI) then
-    FreeandNil(FCGI);
-  {$ENDIF}
 end;
 
 procedure THTTPConnection.Dispose;
@@ -944,11 +924,6 @@ end;
 function THTTPConnection.CheckTimeout: Boolean;
 var s: string;
 begin
-  {$IFDEF CGISUPPORT}
-  if Assigned(FCGI) and not Assigned(FCGI.OnData) then
-    FreeAndNil(FCGI);
-  {$ENDIF}
-
   case FVersion of
     wvNone, wvUnknown:
     begin
@@ -991,45 +966,30 @@ end;
 function THTTPConnection.GotCompleteRequest: Boolean;
 var
   i: Integer;
+  finished: Boolean;
 begin
   result:=False;
-  if not FGotHeader then
+  if (not FGotHeader) and (FContentLength <= 0) then
   begin
     for i:=Length(FInBuffer) downto 4 do
     if(FInBuffer[i]=#10)and(FInBuffer[i-1]=#13)and(FInBuffer[i-2]=#10)and(FInBuffer[i-3]=#13) then
     begin
       result:=True;
       FGotHeader:=FHeader.readstr(FInBuffer);
-      Break;
+      if FGotHeader then
+        FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
+      Exit;
     end;
-  end;
-  if FGotHeader then
+  end else
+  //if FGotHeader or (FContentLength > 0) then
   begin
     if FContentLength = -1 then
       FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
     if FContentLength>0 then
     begin
-
-      {$IFDEF CGISUPPORT}
-      if IsExternalScript then
-      begin
-        FCGIPostDataLength:=FContentLength;
-        result:=True;
-        Exit;
-      end;
-      {$ENDIF}
-
-      if (FContentLength = 0) or (FContentLength > 15 * 1024 * 1024) then
-      begin
-        result:=True;
-        FGotHeader:=False;
-        Exit;
-      end;
-      if Length(FInBuffer)>=FContentLength then
-      begin
-        result:=True;
-        FGotHeader:=FHeader.POSTData.readstr(FInBuffer);
-      end;
+      CheckMessageBody;
+      if FContentLength = 0 then
+        result:=GotCompleteRequest;
     end else
       result:=True;
   end;
@@ -1037,13 +997,7 @@ end;
 
 function THTTPConnection.IsExternalScript: Boolean;
 begin
-  {$IFDEF CGISUPPORT}
-  // wrong on so many levels!
-  result:=Pos('.php', Lowercase(FHeader.url))>0;
-  //result:=(Lowercase(ExtractFileExt(FHeader.url)) = '.php');// and FHost.Files.Exists(target);
-  {$ELSE}
   result:=False;
-  {$ENDIF}
 end;
 
 procedure THTTPConnection.ProcessHixie76;
@@ -1071,8 +1025,8 @@ begin
         end;
       end else
 {$ENDIF}
-      if Assigned(FOnData) then
-        FOnData(Self, s);
+      if Assigned(FOnWebsocketData) then
+        FOnWebsocketData(Self, s);
     end else
     begin
       dolog(llDebug, GetPeerName+': closing, Invalid packet');
@@ -1176,8 +1130,8 @@ begin
         if header.fin then
         begin
           hassegmented:=false;
-          if Assigned(FOnData) then
-            FOnData(Self, FWSDAta);
+          if Assigned(FOnWebsocketData) then
+            FOnWebsocketData(Self, FWSDAta);
           fwsdata:='';
           // data received!
         end;
@@ -1194,8 +1148,8 @@ begin
         end else
         begin
           // data received
-          if Assigned(FOnData) then
-            FOnData(Self, s);
+          if Assigned(FOnWebsocketData) then
+            FOnWebsocketData(Self, s);
         end;
       end;
       8:
@@ -1227,7 +1181,21 @@ begin
   end;
 end;
 
-{$IFDEF CGISUPPORT}
+procedure THTTPConnection.WebscriptPostHandler(Sender: THTTPConnection;
+  Data: ansistring; finished: Boolean);
+begin
+  FPostData:=FPostData + Data;
+  if finished then
+  begin
+    if not FHeader.POSTData.readstr(Data) then
+      dolog(llError, 'Got invalid POST data');
+    FPostData:='';
+    if not ExecuteScript(Target) then
+      SendStatusCode(500);
+  end;
+end;
+
+{$IFDEF CGASUPPORT}
 function THTTPConnection.CreateEnvVars: ansistring;
 const
   newLine=#13#10;
@@ -1284,94 +1252,49 @@ begin
     end;
   end;
 end;
+{$ENDIF}
 
-procedure THTTPConnection.SendCGI(const Data: ansistring);
+
+procedure THTTPConnection.CheckMessageBody;
 var
-  i, j, k: Integer;
-  s, s2, s3, status: ansistring;
+  finished: Boolean;
 begin
-  s:=Data;
-  status:='200 OK';
+  if FContentLength = -1 then
+    FContentLength:=StrToIntDef(FHeader.header['Content-Length'], 0);
+  if FContentLength<=0 then
+    Exit;
 
-
-  // parse header-entries passed by script
-  i:=1; // end position of line
-  j:=1; // start position of line
-  k:=0; // position of ":"
-  while i+1<=Length(s) do
+  if Assigned(FOnPostData) then
   begin
-    if (s[i]=#13)and(s[i+1]=#10) then
+    finished:=Length(FInBuffer)>=FContentLength;
+    if Length(FInBuffer)<=FContentLength then
     begin
-      if k<>0 then
-      begin
-        s2:=Copy(s, j, k-j);
-        s3:=Copy(s, k+1, i-(k+1));
-        if s2='Status' then
-          status:=s3
-        else
-          freply.header.Add(s2, s3);
-      end else
-      if i=j then
-        Break
-      else
-      begin
-        // invalid?
-      end;
-
-      k:=0;
-      Inc(i);
-      j:=i+1;
+      FOnPostData(Self, FInBuffer, finished);
+      Dec(FContentLength, Length(FInBuffer));
+      FInBuffer:='';
     end else
-    if (s[i]=':')and(k=0) then
-      k:=i;
-
-    Inc(i);
-  end;
-  Delete(s, 1, i+1);
-
-
-  (*
-  while pos(#13#10, s)>0 do
-  begin
-    s2:=Copy(s, 1, pos(#13#10, s)-1);
-    delete(s, 1, Length(s2)+2);
-    if s2='' then
-      Break;
-    s3:=Copy(s2, Pos(': ', s2)+2, Length(s2));
-    Setlength(s2, Length(s2)-(Length(s3)+2));
-    if s2='Status' then
-      status:=s3
-    else
-      freply.header.Add(s2, s3);
-  end; *)
-
-  FReply.header.Add('Content-Length', IntToStr(Length(s)));
-
-  if FHeader.action = 'HEAD' then
-    SendRaw(freply.build(status))
-  else
-    SendRaw(freply.build(status) + s);
-
-  FCGI.OnData:=nil;
-  if not fkeepalive then
-    Close;
-end;
-
-procedure THTTPConnection.SendCGIPostData;
-begin
-  if Length(FInBuffer)>FCGIPostDataLength then
-  begin
-    FCGI.Write(@FInBuffer[1], FCGIPostDataLength);
-    Delete(FInBuffer, 1, FCGIPostDataLength);
-    FCGIPostDataLength:=0;
+    begin
+      FOnPostData(Self, Copy(FInBuffer, 1, FContentLength), finished);
+      Delete(FInBuffer, 1, FContentLength);
+      FContentLength:=0;
+    end;
+    if finished then
+      FOnPostData:=nil;
   end else
   begin
-    FCGI.Write(@FInBuffer[1], Length(FInBuffer));
-    Dec(FCGIPostDataLength, Length(FInBuffer));
-    FInBuffer:='';
+    if Length(FInBuffer)<=FContentLength then
+    begin
+      Dec(FContentLength, Length(FInBuffer));
+      FInBuffer:='';
+    end else
+    begin
+      Delete(FInBuffer, 1, FContentLength);
+      FContentLength:=0;
+    end;
+    if FContentLength = 0 then
+      dolog(llWarning, GetPeerName+': Got unexpected message body for '+FHeader.action+' '+FHeader.url);
   end;
 end;
-{$ENDIF}
 
 procedure THTTPConnection.ProcessData(const Buffer: Pointer;
   BufferLength: Integer);
@@ -1382,15 +1305,6 @@ begin
   i:=Length(FInBuffer);
   Setlength(FInBuffer, i + BufferLength);
   Move(Buffer^, FInBuffer[i+1], BufferLength);
-
-  {$IFDEF CGISUPPORT}
-  if Assigned(FCGI) and (FCGIPostDataLength>0) then
-  begin
-    SendCGIPostData;
-    if Length(FInBuffer)=0 then
-      Exit;
-  end;
-  {$ENDIF}
 
   case FVersion of
     wvNone:
@@ -1437,6 +1351,15 @@ begin
     SendRaw(freply.build(result))
   else
     SendRaw(freply.Build(result) + data);
+
+  if Assigned(FOnPostData) then
+  begin
+    dolog(llError, GetPeerName+': Internal error - postdata callback still in place when it should not be');
+    FOnPostData:=nil;
+  end;
+
+  CheckMessageBody; // this is just a courtesy call to remove bogus post-data from our inbuffer
+
   if not FKeepAlive then
     Close;
 end;
