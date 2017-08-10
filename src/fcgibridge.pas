@@ -37,7 +37,7 @@ type
     constructor Create(AParent: TEpollWorkerThread; AHandle: THandle);
     function BeginRequest: Word;
     procedure SetParameters(ID: Word; Parameters: ansistring);
-    procedure SendRequest(ReqType: Byte; Id: Word; Data: Pointer; Length: Integer);
+    procedure SendRequest(ReqType: Byte; Id: Word; Data: Pointer; Length: Word);
     property OnEvent: TFastCGIEvent read FOnEvent write FOnEvent;
   end;
 
@@ -90,6 +90,11 @@ uses
 
 const
   MaxTempBufferSize = 65536;
+
+function SwapWord(w: Word): Word; inline;
+begin
+  result:=Word((w shr 8) or (w shl 8));
+end;
 
 { TFastCGIBridgeFile }
 
@@ -239,7 +244,7 @@ begin
 end;
 
 procedure TAbstractFastCGIBridge.SendRequest(ReqType: Byte; Id: Word; Data: Pointer;
-  Length: Integer);
+  Length: Word);
 var
   Rec: FCGI_Header;
   Foo: ansistring;
@@ -248,7 +253,7 @@ begin
   Rec.version:=1;
   Rec.paddingLength:=0;
   Rec.requestID:=Id;
-  Rec.contentLength:=Length;
+  Rec.contentLength:=SwapWord(Length);
   Setlength(Foo, SizeOf(Rec) + Length);
   Move(Rec, Foo[1], SizeOf(rec));
   if Length>0 then
@@ -278,13 +283,11 @@ begin
   Packet.header.version:=1;
   Packet.header.reqtype:=FCGI_BEGIN_REQUEST;
   Packet.header.paddingLength:=0;
-  Packet.header.contentLength:=SizeOf(Packet.body);
-  Packet.header.requestID:=result;
+  Packet.header.contentLength:=SwapWord(Word(SizeOf(Packet.body)));
+  Packet.header.requestID:=SwapWord(result);
   Packet.header.reserved:=0;
-
-  Packet.body.role:=FCGI_RESPONDER;
+  Packet.body.role:=SwapWord(FCGI_RESPONDER);
   Packet.body.flags:=FCGI_KEEP_CONN;
-  Writeln('size ', SizeOf(Packet));
   Send(@Packet, SizeOf(Packet));
 end;
 
@@ -308,15 +311,15 @@ begin
       Exit;
     FHeader:=@FData[1];
 
-    if Length(FData)<SizeOf(FCGI_Header) + FHeader^.contentLength then
+    if Length(FData)<SizeOf(FCGI_Header) + SwapWord(FHeader^.contentLength) then
       Exit;
 
     if FHeader^.reqtype < FCGI_MAXTYPE then
     begin
       if Assigned(FOnEvent) then
-        FOnEvent(FHeader, @FData[SizeOf(FCGI_Header)], FHeader^.contentLength);
+        FOnEvent(FHeader, @FData[SizeOf(FCGI_Header)], SwapWord(FHeader^.contentLength));
     end;
-    Delete(FData, 1, SizeOf(FCGI_Header) + FHeader^.contentLength);
+    Delete(FData, 1, SizeOf(FCGI_Header) + SwapWord(FHeader^.contentLength));
   end;
 end;
 
