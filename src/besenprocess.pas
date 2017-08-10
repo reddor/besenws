@@ -205,8 +205,6 @@ end;
 procedure TBESENProcess.start(const ThisArgument: TBESENValue;
   Arguments: PPBESENValues; CountArguments: integer;
   var ResultValue: TBESENValue);
-var
-  h: TTermios;
 begin
   if Assigned(FProcess) then
   begin
