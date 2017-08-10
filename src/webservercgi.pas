@@ -11,6 +11,8 @@ uses
   epollsockets,
   webserver,
   externalproc,
+  fastcgi,
+  fcgibridge,
   webserverhosts;
 
 type
@@ -30,7 +32,72 @@ type
     destructor Destroy; override;
   end;
 
+  { TWebserverFastCGIInstance }
+
+  TWebserverFastCGIInstance = class
+  private
+    FClient: THTTPConnection;
+    FFastCGI: TAbstractFastCGIBridge;
+    FEnv: ansistring;
+    procedure EnvCallback(const Name, Value: ansistring);
+  protected
+    procedure ClientDisconnect(Sender: TEPollSocket);
+    procedure InputData(Sender: THTTPConnection; const Data: ansistring; finished: Boolean);
+    procedure FCGIEvent(Header: PFCGI_Header; Data: Pointer; Length: Integer);
+  public
+    constructor Create(AParent: TEpollWorkerThread; AClient: THTTPConnection; Host, Port: ansistring);
+    destructor Destroy; override;
+  end;
+
 implementation
+
+{ TWebserverFastCGIInstance }
+
+procedure TWebserverFastCGIInstance.EnvCallback(const Name, Value: ansistring);
+begin
+  if Value<>'' then
+  FEnv:=FEnv + Chr(Length(Name))+Chr(Length(Value))+Name+Value;
+end;
+
+procedure TWebserverFastCGIInstance.ClientDisconnect(Sender: TEPollSocket);
+begin
+  Writeln('Disconnect');
+end;
+
+procedure TWebserverFastCGIInstance.InputData(Sender: THTTPConnection;
+  const Data: ansistring; finished: Boolean);
+begin
+  Writeln('input');
+end;
+
+procedure TWebserverFastCGIInstance.FCGIEvent(Header: PFCGI_Header;
+  Data: Pointer; Length: Integer);
+begin
+  Writeln('Data ', length);
+end;
+
+constructor TWebserverFastCGIInstance.Create(AParent: TEpollWorkerThread;
+  AClient: THTTPConnection; Host, Port: ansistring);
+var
+  id: word;
+begin
+  FClient:=AClient;
+  FClient.OnDisconnect:=ClientDisconnect;
+  FClient.OnPostData:=InputData;
+  FEnv:='';
+  FClient.GetCGIEnvVars(EnvCallback);
+  FFastCGI:=TFastCGIBridgeSocket.Create(AParent, Host, Port);
+  FFastCGI.OnEvent:=FCGIEvent;
+
+  id:=FFastCGI.BeginRequest;
+  FFastCGI.SetParameters(id, FEnv);
+  FFastCGI.SetParameters(id, '');
+end;
+
+destructor TWebserverFastCGIInstance.Destroy;
+begin
+  inherited Destroy;
+end;
 
 { TWebserverCGIInstance }
 

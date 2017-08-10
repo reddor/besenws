@@ -227,14 +227,14 @@ begin
     Setlength(temp, MaxTempBufferSize);
     repeat
       bufRead:=Receive(@temp[1], Length(Temp));
-      //fprecv(FSocket, @temp[1], Length(temp), MSG_DONTWAIT or MSG_NOSIGNAL);
+      //bufRead:=fprecv(FSocket, @temp[1], Length(temp), MSG_DONTWAIT or MSG_NOSIGNAL);
       if (bufRead > 0) then
       begin
         if bufRead <> MaxTempBufferSize then
           Setlength(temp, bufRead);
         ProcessData(temp);
       end else
-      //if bufRead<0 then
+      if bufRead<0 then
         Writeln('error ', GetLastOSError, ' ', bufRead, ' ', socketerror);
     until bufRead <> MaxTempBufferSize;
   end;
@@ -255,7 +255,7 @@ begin
   Rec.reqtype:=ReqType;
   Rec.version:=1;
   Rec.paddingLength:=0;
-  Rec.requestID:=Id;
+  Rec.requestID:=SwapWord(Id);
   Rec.contentLength:=SwapWord(Length);
   Setlength(Foo, SizeOf(Rec) + Length);
   Move(Rec, Foo[1], SizeOf(rec));
@@ -322,7 +322,7 @@ begin
       if Assigned(FOnEvent) then
         FOnEvent(FHeader, @FData[SizeOf(FCGI_Header)], SwapWord(FHeader^.contentLength));
     end;
-    Delete(FData, 1, SizeOf(FCGI_Header) + SwapWord(FHeader^.contentLength));
+    Delete(FData, 1, SizeOf(FCGI_Header) + SwapWord(FHeader^.contentLength) + FHeader^.paddingLength);
   end;
 end;
 
