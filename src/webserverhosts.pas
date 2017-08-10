@@ -56,6 +56,8 @@ type
     procedure QueueScan(Site: TWebserverSite);
   end;
 
+  TExternalScriptType = (esCGI, esFastCGI);
+
   { TWebserverSite }
 
   TWebserverSite = class
@@ -66,14 +68,21 @@ type
     FParent: TWebserverSiteManager;
     FFileCache: TFileCache;
     FCustomHandlers: THashtable;
+    FExternalScriptTypes: array of record
+      ScriptType: TExternalScriptType;
+      UrlPrefix: ansistring;
+      Extension: ansistring;
+      ParamA, ParamB: ansistring;
+    end;
     FScriptDirs: array of record
-      dir: ansistring;
-      script: ansistring;
+      Dir: ansistring;
+      Script: ansistring;
     end;
     FResponseHeaders: array of record
-      name: ansistring;
-      value: ansistring;
+      Name: ansistring;
+      Value: ansistring;
     end;
+    FIndexNames: array of string;
     FWhitelistedProcesses: array of ansistring;
     FForwards: TStringHashtable;
     FCustomStatusPages: array[CustomStatusPageMin..CustomStatusPageMax] of ansistring;
@@ -92,6 +101,7 @@ type
     procedure AddHostAlias(HostName: string);
     procedure AddCustomHandler(url: string; Handler: TEpollWorkerThread);
     procedure AddCustomStatusPage(StatusCode: Word; URI: string);
+    procedure AddCGI(urlPrefix, extension, binary, parameters: ansistring);
     procedure ApplyResponseHeader(const Response: THTTPReply);
     procedure AddWhiteListProcess(const Executable: ansistring);
     function IsProcessWhitelisted(const Executable: ansistring): Boolean;
@@ -100,6 +110,8 @@ type
     function PutStore(const Location, Data: string): Boolean;
     function DelStore(const Location: string): Boolean;
     function GetCustomHandler(url: string): TEpollWorkerThread;
+    function GetIndexPage(var target: string): PFileCacheItem;
+    function IsExternalScript(url: string; Client: TEPollSocket): Boolean;
     property Files: TFileCache read FFileCache;
     property Path: string read FPath;
     property Name: string read FName;
@@ -142,6 +154,8 @@ function IntToFilesize(Size: longword): string;
 implementation
 
 uses
+  webserver,
+  webservercgi,
   besenserverconfig;
 
 function FileToStr(const aFilename: string): string;
@@ -419,6 +433,20 @@ begin
   FCustomStatusPages[StatusCode]:=URI;
 end;
 
+procedure TWebserverSite.AddCGI(urlPrefix, extension, binary,
+  parameters: ansistring);
+var
+  i: Integer;
+begin
+  i:=Length(FExternalScriptTypes);
+  Setlength(FExternalScriptTypes, i+1);
+  FExternalScriptTypes[i].UrlPrefix:=urlPrefix;
+  FExternalScriptTypes[i].Extension:=extension;
+  FExternalScriptTypes[i].ParamA:=binary;
+  FExternalScriptTypes[i].ParamB:=parameters;
+  FExternalScriptTypes[i].ScriptType:=esCGI;
+end;
+
 procedure TWebserverSite.ApplyResponseHeader(const Response: THTTPReply);
 var
   i: Integer;
@@ -502,6 +530,49 @@ end;
 function TWebserverSite.GetCustomHandler(url: string): TEpollWorkerThread;
 begin
   result:=TEpollWorkerThread(FCustomHandlers[url]);
+end;
+
+function TWebserverSite.GetIndexPage(var target: string): PFileCacheItem;
+var
+  i: Integer;
+begin
+  result:=nil;
+  for i:=0 to Length(FIndexNames)-1 do
+  begin
+    result:=FFileCache.Find(target + FIndexNames[i]);
+    if Assigned(result) then
+    begin
+      target:=target + FIndexNames[i];
+      Exit;
+    end;
+  end;
+end;
+
+function TWebserverSite.IsExternalScript(url: string; Client: TEPollSocket
+  ): Boolean;
+var
+  i, j: Integer;
+begin
+  result:=False;
+  {$IFDEF CGISUPPORT}
+  for i:=0 to Length(FExternalScriptTypes)-1 do
+  begin
+    if Length(FExternalScriptTypes[i].UrlPrefix)>Length(url) then
+      Continue;
+    for j:=1 to Length(FExternalScriptTypes[i].UrlPrefix) do
+      if url[j] <> FExternalScriptTypes[i].UrlPrefix[j] then
+        Continue;
+    if Lowercase(ExtractFileExt(url)) = FExternalScriptTypes[i].Extension then
+    begin
+      case FExternalScriptTypes[i].ScriptType of
+        esCGI: TWebserverCGIInstance.Create(Client.Parent, THTTPConnection(Client),
+          FExternalScriptTypes[i].ParamA, FExternalScriptTypes[i].ParamB);
+      end;
+      result:=True;
+      Exit;
+    end;
+  end;
+  {$ENDIF}
 end;
 
 { TWebserverSiteManager }

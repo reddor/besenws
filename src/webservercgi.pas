@@ -14,42 +14,47 @@ uses
   webserverhosts;
 
 type
-  TWebserverCGIHandler = class;
-
   { TWebserverCGIInstance }
   TWebserverCGIInstance = class
   private
     FClient: THTTPConnection;
     FProc: TExternalProc;
+    FEnv: ansistring;
+    procedure EnvCallback(const Name, Value: ansistring);
     procedure ClientDisconnect(Sender: TEPollSocket);
   protected
+    procedure InputData(Sender: THTTPConnection; const Data: ansistring; finished: Boolean);
     procedure SendData(const Data: ansistring);
   public
-    constructor Create(AParent: TWebserverCGIHandler; AClient: THTTPConnection; Proc: ansistring);
+    constructor Create(AParent: TEpollWorkerThread; AClient: THTTPConnection; Executable, Parameters: ansistring);
+    destructor Destroy; override;
   end;
-
-  { TWebserverCGIHandler }
-
-  TWebserverCGIHandler = class(TEpollWorkerThread)
-  private
-    FSite: TWebserverSite;
-    FProcs: TFPObjectHashTable;
-    FHandler: ansistring;
-  protected
-    procedure ThreadTick; override;
-    procedure AddConnection(Client: TEPollSocket);
-  public
-    constructor Create(aParent: TWebserver; ASite: TWebserverSite; Handler: ansistring);
-  end;
-
 
 implementation
 
 { TWebserverCGIInstance }
 
+procedure TWebserverCGIInstance.EnvCallback(const Name, Value: ansistring);
+begin
+  if Value = '' then
+    Exit;
+
+  if FEnv = '' then
+    FEnv:=Name+'='+Value
+  else
+    FEnv:=FEnv + #13#10 + Name+'='+Value;
+end;
+
 procedure TWebserverCGIInstance.ClientDisconnect(Sender: TEPollSocket);
 begin
+  Free;
+end;
 
+procedure TWebserverCGIInstance.InputData(Sender: THTTPConnection;
+  const Data: ansistring; finished: Boolean);
+begin
+  if Data <> '' then
+    FProc.Write(@Data[1], Length(Data));
 end;
 
 procedure TWebserverCGIInstance.SendData(const Data: ansistring);
@@ -96,7 +101,6 @@ begin
   end;
   Delete(s, 1, i+1);
 
-
   (*
   while pos(#13#10, s)>0 do
   begin
@@ -111,46 +115,41 @@ begin
     else
       freply.header.Add(s2, s3);
   end; *)
-
   FClient.Reply.header.Add('Content-Length', IntToStr(Length(s)));
-
   if FClient.Header.action = 'HEAD' then
     FClient.SendRaw(FClient.reply.build(status))
   else
     FClient.SendRaw(FClient.reply.build(status) + s);
-
   if not FClient.Keepalive then
     FClient.Close;
+  Free;
 end;
 
-constructor TWebserverCGIInstance.Create(AParent: TWebserverCGIHandler;
-  AClient: THTTPConnection; Proc: ansistring);
+constructor TWebserverCGIInstance.Create(AParent: TEpollWorkerThread;
+  AClient: THTTPConnection; Executable, Parameters: ansistring);
 begin
   FClient:=AClient;
   FClient.OnDisconnect:=ClientDisconnect;
-  FProc:=TExternalProc.Create(AParent, Proc, '', '');
+  FClient.OnPostData:=InputData;
+  FEnv:='';
+  FClient.GetCGIEnvVars(EnvCallback);
+  FProc:=TExternalProc.Create(AParent, Executable, Parameters, FEnv);
   FProc.OnData:=SendData;
 end;
 
-{ TWebserverCGIHandler }
-
-procedure TWebserverCGIHandler.ThreadTick;
+destructor TWebserverCGIInstance.Destroy;
 begin
-  inherited ThreadTick;
-end;
-
-procedure TWebserverCGIHandler.AddConnection(Client: TEPollSocket);
-begin
-  TWebserverCGIInstance.Create(Self, THTTPConnection(Client), FHandler);
-end;
-
-constructor TWebserverCGIHandler.Create(aParent: TWebserver;
-  ASite: TWebserverSite; Handler: ansistring);
-begin
-  FSite:=ASite;
-  OnConnection:=AddConnection;
-  FHandler:=Handler;
-  inherited Create(aParent);
+  if Assigned(FProc) then
+  begin
+    FProc.OnData:=nil;
+    FreeAndNil(FProc);
+  end;
+  if Assigned(FClient) then
+  begin
+    FClient.OnPostData:=nil;
+    FClient.OnDisconnect:=nil;
+  end;
+  inherited Destroy;
 end;
 
 end.

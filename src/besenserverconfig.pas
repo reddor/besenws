@@ -41,6 +41,7 @@ type
     function GetAutoUpdate: LongBool;
     procedure SetAutoUpdate(AValue: LongBool);
   published
+    procedure addCGIHandler(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addHostname(host) - binds a host to this site. requests made to this host will be processed by this site }
     procedure addHostname(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addForward(url, newUrl) - redirects requests from "url" to newUrl" using a 301 status code
@@ -205,6 +206,26 @@ procedure TBESENWebserverSite.SetAutoUpdate(AValue: LongBool);
 begin
   if Assigned(FSite) then
     FSite.Files.AutoUpdate:=True;
+end;
+
+procedure TBESENWebserverSite.addCGIHandler(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+var
+  prefix, ext, binary, args: ansistring;
+begin
+  if (CountArguments<3) or (not Assigned(FSite)) then
+    Exit;
+
+  prefix:=ansistring(TBESEN(Instance).ToStr(Arguments^[0]^));
+  ext:=ansistring(TBESEN(Instance).ToStr(Arguments^[1]^));
+  binary:=ansistring(TBESEN(Instance).ToStr(Arguments^[2]^));
+  if CountArguments>3 then
+    args:=ansistring(TBESEN(Instance).ToStr(Arguments^[3]^))
+  else
+    args:='';
+
+  FSite.AddCGI(prefix, ext, binary, args);
 end;
 
 procedure TBESENWebserverSite.addHostname(const ThisArgument: TBESENValue;

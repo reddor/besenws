@@ -122,7 +122,7 @@ type
     function GetClient(AClient: THTTPConnection): TBESENWebsocketClient;
     procedure ThreadTick; override;
     procedure AddConnection(Client: TEPollSocket);
-    procedure ClientData(Sender: THTTPConnection; data: ansistring);
+    procedure ClientData(Sender: THTTPConnection; const data: ansistring);
     procedure ClientDisconnect(Sender: TEPollSocket);
     procedure Initialize; override;
   public
@@ -218,7 +218,7 @@ begin
   FHandler:=nil;
 end;
 
-procedure TBESENWebsocket.ClientData(Sender: THTTPConnection; data: ansistring);
+procedure TBESENWebsocket.ClientData(Sender: THTTPConnection; const data: ansistring);
 var
   client: TBESENWebsocketClient;
   a: array[0..1] of PBESENValue;

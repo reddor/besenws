@@ -21,6 +21,8 @@ type
 
   TFastCGIEvent = procedure(Header: PFCGI_Header; Data: Pointer; Length: Integer) of object;
 
+  { TAbstractFastCGIBridge }
+
   TAbstractFastCGIBridge = class(TCustomEpollHandler)
   private
     FCurrentID: Word;
@@ -28,7 +30,7 @@ type
     FOnEvent: TFastCGIEvent;
   protected
     FHandle: THandle;
-    procedure DataReady(Event: epoll_event); override;
+    function DataReady(Event: epoll_event): Boolean; override;
     procedure Send(Data: Pointer; Length: Integer); virtual; abstract;
     function Receive(Data: Pointer; Length: Integer): Integer; virtual; abstract;
     procedure ConnectionClosed; virtual; abstract;
@@ -211,11 +213,12 @@ end;
 
 { TFastCGIBridge }
 
-procedure TAbstractFastCGIBridge.DataReady(Event: epoll_event);
+function TAbstractFastCGIBridge.DataReady(Event: epoll_event): Boolean;
 var
   temp: ansistring;
   bufRead: Integer;
 begin
+  result:=True;
   Writeln('got event ', Event.Events);
   if (Event.Events and EPOLLIN<>0) then
   begin

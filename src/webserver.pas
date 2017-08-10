@@ -60,14 +60,16 @@ type
 
   TWebserver = class;
   THTTPConnection = class;
-  THTTPConnectionDataReceived = procedure(Sender: THTTPConnection; Data: ansistring) of object;
-  THTTPConnectionPostDataReceived = procedure(Sender: THTTPConnection; Data: ansistring; finished: Boolean) of object;
+  THTTPConnectionDataReceived = procedure(Sender: THTTPConnection; const Data: ansistring) of object;
+  THTTPConnectionPostDataReceived = procedure(Sender: THTTPConnection; const Data: ansistring; finished: Boolean) of object;
+  TCGIEnvCallback = procedure(const Name, Value: ansistring) of object;
 
   { THTTPConnection }
   THTTPConnection = class(TEPollSocket)
   private
     FInBuffer: ansistring;
     FIdent: ansistring;
+    FPathUrl: ansistring;
     FMaxPongTime: Integer;
     FOnPostData: THTTPConnectionPostDataReceived;
     FOnWebsocketData: THTTPConnectionDataReceived;
@@ -93,7 +95,7 @@ type
     procedure ProcessHixie76;
     function ReadRFCWebsocketFrame(out header: TWebsocketFrame; out HeaderSize: Integer): Boolean;
     procedure ProcessRFC;
-    procedure WebscriptPostHandler(Sender: THTTPConnection; Data: ansistring; finished: Boolean);
+    procedure WebscriptPostHandler(Sender: THTTPConnection; const Data: ansistring; finished: Boolean);
   protected
     procedure ProcessData(const Buffer: Pointer; BufferLength: Integer); override;
     procedure ProcessRequest;
@@ -109,6 +111,7 @@ type
     function CanWebsocket: Boolean;
     procedure UpgradeToWebsocket;
     function CheckTimeout: Boolean; override;
+    procedure GetCGIEnvVars(Callback: TCGIEnvCallback);
 
     procedure SendWS(data: ansistring; Flush: Boolean = True);
     procedure SendContent(mimetype, data: ansistring; result: ansistring = '200 OK');
@@ -144,23 +147,8 @@ type
     property SSL: Boolean read FSSL;
   end;
 
-  {$IFDEF CGASUPPORT}
-  { TwebserverFCGIBridgeProcess }
-  TwebserverFCGIBridgeProcess = class
-  private
-    FItems: array[0..65535] of THTTPConnection;
-    FBridge: TAbstractFastCGIBridge;
-    procedure DataReceived(Header: PFCGI_Header; Data: Pointer; Length: Integer);
-  public
-    constructor Create(Parent: TEpollWorkerThread; ip, port: ansistring);
-    procedure StartCGI(Connection: THTTPConnection);
-  end;
-  {$ENDIF}
   { TWebserverWorkerThread }
-
   TWebserverWorkerThread = class(TEpollWorkerThread)
-  private
-
   protected
     procedure Initialize; override;
   end;
@@ -196,6 +184,7 @@ implementation
 
 uses
   IniFiles,
+  buildinfo,
 {$ifdef OPENSSL_SUPPORT}
   opensslclass,
 {$ENDIF}
@@ -203,6 +192,7 @@ uses
   BESENStringUtils,
   besenwebsocket,
   besenwebscript,
+  webservercgi,
   base64;
 
 function ProcessHandshakeString(const Input: ansistring): ansistring;
@@ -305,61 +295,6 @@ begin
   inherited Initialize;
 end;
 
-{ TWebserverWorkerThread }
-
-{$IFDEF CGASUPPORT}
-
-{ TwebserverFCGIBridgeProcess }
-
-procedure TwebserverFCGIBridgeProcess.DataReceived(Header: PFCGI_Header;
-  Data: Pointer; Length: Integer);
-var
-  conn: THTTPConnection;
-  temp: ansistring;
-begin
-  conn:=FItems[Header^.requestID];
-  if not Assigned(conn) then
-  begin
-    dolog(llError, 'Got FCGI data with invalid id');
-  end;
-
-  case Header^.reqtype of
-    FCGI_STDOUT:
-    begin
-      Setlength(Temp, Length);
-      Move(Data^, temp[1], Length);
-      conn.SendRaw(temp);
-    end;
-    FCGI_END_REQUEST:
-    begin
-      conn.SendRaw(#13#10#13#10);
-    end;
-  end;
-end;
-
-constructor TwebserverFCGIBridgeProcess.Create(Parent: TEpollWorkerThread; ip,
-  port: ansistring);
-begin
-  FBridge:=TFastCGIBridgeSocket.Create(Parent, '127.0.0.1', '9000');
-  //TFastCGIBridgeFile.Create(Parent, '/run/php/php7.0-fpm.sock');
-  //TFastCGIBridge.Create(Parent, sock.Socket);
-  FBridge.OnEvent:=DataReceived;
-end;
-
-procedure TwebserverFCGIBridgeProcess.StartCGI(Connection: THTTPConnection);
-var
-  id: Word;
-begin
-  id:=FBridge.BeginRequest;
-  FItems[id]:=Connection;
-
-
-  FBridge.SetParameters(id, '');
-  //FBridge.SendRequest(FCGI_STDIN, id, nil, 0);
-  FBridge.SendRequest(FCGI_STDIN, id, nil, 0);
-end;
-
-{$ENDIF}
 { TWebserverListener }
 
 procedure TWebserverListener.Execute;
@@ -447,7 +382,7 @@ begin
 
       FReply.Clear(FHeader.version);
 
-      Freply.header.Add('Server', 'besenws/0.1');
+      Freply.header.Add('Server', FullServerName);
 
       Freply.header.Add('Date', DateTimeToHTTPTime(Now));
       fkeepalive := Pos('KEEP-ALIVE', Uppercase(Fheader.header['Connection']))>0;
@@ -639,13 +574,15 @@ end;
 
 procedure THTTPConnection.SendReply;
 var
-  s, params, PathUrl: ansistring;
+  s, params: ansistring;
   Len: Integer;
   Data: Pointer;
   LastModified: TDateTime;
   ARangeStart, ARangeLen: Cardinal;
   FFile: PFileCacheItem;
 begin
+  FPathUrl:='';
+
   if FHost.IsScriptDir(target, s, params) then
   begin
     target:=s;
@@ -663,44 +600,37 @@ begin
     FHost.Files.Release(FFile);
     FReply.header.Add('Location', target+'/');
     SendStatusCode(301);
-    //SendContent('text/plain', 'this is a directory', '301 Moved Permanently');
     Exit;
   end;
 
   if (not Assigned(FFile))and(target[Length(Target)]='/') then
   begin
-    FFile:=FHost.Files.Find(target + 'index.html');
-    if Assigned(FFile) then
-      target:=target + 'index.html'
-    else
-    if FHost.Files.Exists(target + 'index.jsp') then
-    begin
-      target := target + 'index.jsp';
-      FFile:=FHost.Files.Find(target);
-    end{ else
-    begin
-      SendStatusCode(404);
-      Exit;
-    end};
+    FFile:=FHost.GetIndexPage(target);
   end;
 
   if not Assigned(FFile) then
   begin
-    s:=target;
-    FFile:=FHost.Files.FindPathUrl(s, PathUrl);
+    // this is some trickery to find the right script for requests like GET /script.php/param
+    FFile:=FHost.Files.FindPathUrl(target, FPathUrl);
 
     if Assigned(FFile) then
     begin
-      begin
-        Fhost.Files.Release(FFile);
+      Fhost.Files.Release(FFile);
+      if not FHost.IsExternalScript(target, Self) then
         SendStatusCode(404);
-        Exit;
-      end;
+      Exit;
     end else
     begin
       SendStatusCode(404);
       Exit;
     end;
+  end;
+
+  // IsExternalScript will invoke the script processor by itself
+  if FHost.IsExternalScript(target, Self) then
+  begin
+    FHost.Files.Release(FFile);
+    Exit;
   end;
 
   if Lowercase(ExtractFileExt(target)) = '.jsp' then
@@ -899,6 +829,7 @@ begin
   FIdent:='';
   FContentLength:=-1;
   FPostData:='';
+  FPathUrl:='';
   FGotHeader:=False;
   FOnWebsocketData:=nil;
   FOnPostData:=nil;
@@ -1180,12 +1111,15 @@ begin
 end;
 
 procedure THTTPConnection.WebscriptPostHandler(Sender: THTTPConnection;
-  Data: ansistring; finished: Boolean);
+  const Data: ansistring; finished: Boolean);
+var
+  s: ansistring;
 begin
   FPostData:=FPostData + Data;
   if finished then
   begin
-    if not FHeader.POSTData.readstr(Data) then
+    s:=Data;
+    if not FHeader.POSTData.readstr(s) then
       dolog(llError, 'Got invalid POST data');
     FPostData:='';
     Sender.OnPostData:=nil;
@@ -1194,65 +1128,55 @@ begin
   end;
 end;
 
-{$IFDEF CGASUPPORT}
-function THTTPConnection.CreateEnvVars: ansistring;
-const
-  newLine=#13#10;
+procedure THTTPConnection.GetCGIEnvVars(Callback: TCGIEnvCallback);
 var
   i: Integer;
   a, b: ansistring;
 begin
-  result:='';
-
   for i:=0 to FHeader.header.Count-1 do
   begin
     FHeader.header.Get(i, a, b);
-    a:=StringReplace(a, '-', '_', [rfReplaceAll]);
-    result:=result + 'HTTP_'+Uppercase(a) + '=' + b + NewLine;
+    a:='HTTP_' + Uppercase(StringReplace(a, '-', '_', [rfReplaceAll]));
+    Callback(a, b);
   end;
 
-  result:=result +
-    'CONTENT_LENGTH=' + FHeader.header['Content-Length'] + NewLine +
-    'CONTENT_TYPE=' + FHeader.header['Content-Type'] + NewLine +
-    'GATEWAY_INTERFACE=CGI/1.1' + NewLine +
-    //'PATH_INFO=' + NewLine +
-    //'PATH_TRANSLATED=' + NewLine +
-    'QUERY_STRING=' + FHeader.parameters + NewLine +
-    'REMOTE_ADDR=' + GetRemoteIP + NewLine +
-    'REMOTE_HOST=' + GetPeerName + NewLine +
-    // 'REMOTE_IDENT=' + NewLine +
-    'REQUEST_METHOD=' + FHeader.action + NewLine +
-    'SCRIPT_NAME=' + target + NewLine +
-    'SERVER_NAME=127.0.0.1' + NewLine +
-    'SERVER_PORT=80' + NewLine +
-    'SERVER_PROTOCOL=' + FHeader.version + NewLine +
-    'SERVER_SOFTWARE=besenws/0.1' + NewLine +
-    'SERVER_SIGNATURE=besenws/0.1' + NewLine +
-    'DOCUMENT_ROOT=' + FHost.Files.BaseDir + NewLine +
-    'REQUEST_SCHEME=http' + NewLine +
-    'SCRIPT_FILENAME=' + FHost.Files.BaseDir + target + NewLine +
-    'REQUEST_URI=' + FHeader.url + NewLine +
-    'REDIRECT_STATUS=' + FHeader.Url;
-
+  Callback('CONTENT_LENGTH', FHeader.header['Content-Length']);
+  Callback('CONTENT_TYPE', FHeader.header['Content-Type']);
+  Callback('GATEWAY_INTERFACE', 'CGI/1.1');
+  //'PATH_INFO'
+  //'PATH_TRANSLATED'
+  Callback('QUERY_STRING', FHeader.parameters);
+  Callback('REMOTE_ADDR', GetRemoteIP);
+  Callback('REMOTE_HOST', GetPeerName);
+  // 'REMOTE_IDENT'
+  Callback('REQUEST_METHOD', FHeader.action);
+  Callback('SCRIPT_NAME', target);
   if FPathUrl <> '' then
-    result:=result + NewLine +
-            'PATH_INFO=' + FPathUrl;
-
-  a:=FHeader.header['Authorization'];
-  if a <> '' then
+    Callback('PATH_INFO', FPathUrl);
+  a:=FHeader.header['Host'];
+  if a<>'' then
   begin
-    b:=Copy(a, 1, pos(' ', a)-1);
-    if b = 'Basic' then
+    if Pos(':', a)>0 then
     begin
-      b:=Copy(a, Length(b)+2, Length(a));
-      result:=result + NewLine +
-          'AUTH_TYPE=Basic' + NewLine +
-          'REMOTE_USER=' + b;// + NewLine +
-    end;
+      b:=Copy(a, Pos(':', a)+1, Length(a));
+      Delete(a, Pos(':', a), Length(b)+1);
+    end else b:='80';
+    Callback('SERVER_NAME', a);
+    Callback('SERVER_PORT', b);
+  end else
+  begin
+    Callback('SERVER_NAME', '127.0.0.1');
+    Callback('SERVER_PORT', '80');
   end;
+  Callback('SERVER_PROTOCOL', FHeader.version);
+  Callback('SERVER_SOFTWARE', FullServerName);
+  Callback('SERVER_SIGNATURE', FullServerName);
+  Callback('DOCUMENT_ROOT', FHost.Files.BaseDir);
+  Callback('REQUEST_SCHEME', 'http');
+  Callback('SCRIPT_FILENAME', FHost.Files.BaseDir + target);
+  Callback('REQUEST_URI', FHeader.url);
+  Callback('REDIRECT_STATUS', FHeader.Url);
 end;
-{$ENDIF}
-
 
 procedure THTTPConnection.CheckMessageBody;
 var

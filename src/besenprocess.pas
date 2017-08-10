@@ -24,7 +24,7 @@ type
     FTarget: TBESENProcess;
     FDataHandle: THandle;
   protected
-    procedure DataReady(Event: epoll_event); override;
+    function DataReady(Event: epoll_event): Boolean; override;
   public
     constructor Create(Target: TBESENProcess; Parent: TEpollWorkerThread);
     procedure SetDataHandle(Handle: THandle);
@@ -68,13 +68,14 @@ uses
 
 { TBESENProcessDataHandler }
 
-procedure TBESENProcessDataHandler.DataReady(Event: epoll_event);
+function TBESENProcessDataHandler.DataReady(Event: epoll_event): Boolean;
 var
   buf: ansistring;
   AResult, AArg: TBESENValue;
   Arg: PBESENValue;
 
 begin
+  result:=True;
   if (Event.Events and EPOLLIN<>0) then
   begin
     setlength(buf, FTarget.FProcess.Output.NumBytesAvailable);

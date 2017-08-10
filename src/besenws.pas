@@ -42,12 +42,12 @@ uses
   beseninstance,
   epollsockets,
   besendb,
+  buildinfo,
   {$IFDEF CGISUPPORT}
   externalproc,
   fcgibridge,
   {$ENDIF}
-  sslclass,
-  buildinfo;
+  sslclass;
 
 {.$R *.res}
 
@@ -241,7 +241,7 @@ begin
       isdebug:=True;
     end;
 
-    dolog(llNotice, 'besenws Build '+BuildString);
+    dolog(llNotice, FullServerName);
     if not isdebug then
     begin
       ForkToBackground;

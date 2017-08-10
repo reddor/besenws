@@ -134,7 +134,8 @@ type
   protected
     procedure AddHandle(Handle: THandle);
     procedure RemoveHandle(Handle: THandle);
-    procedure DataReady(Event: epoll_event); virtual; abstract;
+    { must return false if object has been freed, to avoid use-after-free in epoll loop.. }
+    function DataReady(Event: epoll_event): Boolean; virtual; abstract;
   public
     constructor Create(AParent: TEpollWorkerThread);
     destructor Destroy; override;
@@ -585,7 +586,10 @@ begin
       dolog(llDebug, 'Epoll event without handler received');
     end else
     if TObject(FEPollEvents[j].data.ptr) is TCustomEpollHandler then
-      TCustomEpollHandler(FEPollEvents[j].data.ptr).DataReady(FEpollEvents[j])
+    begin
+      if not TCustomEpollHandler(FEPollEvents[j].data.ptr).DataReady(FEpollEvents[j]) then
+        Break;
+    end
     else
     begin
       conn:=TEPollSocket(FEpollEvents[j].data.ptr);

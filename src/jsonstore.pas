@@ -349,7 +349,7 @@ var
         Inc(Length);
       end;
     end;
-    result.Length:=(Integer(Input) - Integer(Result.Data)) div SizeOf(Char);
+    result.Length:=(PtrUInt(Input) - PtrUInt(Result.Data)) div SizeOf(Char);
   end;
 
   function TokenToStr(Token: TTokenData): KString;
@@ -952,6 +952,7 @@ end;
 
 function TJSONArray.Put(location, data: string): Boolean;
 begin
+  result:=False;
   raise Exception.Create('Not implemented');
 end;
 
