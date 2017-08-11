@@ -149,10 +149,13 @@ begin
       begin
         j:=Min(65535, Length(Data)-i);
         FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1+i], j);
+        Inc(i, j);
       end;
     end else
     FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1], Length(Data));
   end;
+  if finished then
+    FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1], Length(Data));
 end;
 
 procedure TWebserverFastCGIInstance.FCGIEvent(Header: PFCGI_Header;
