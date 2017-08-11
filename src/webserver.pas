@@ -139,6 +139,7 @@ type
     procedure Execute; override;
   public
     constructor Create(Parent: TWebserver; IP, Port: ansistring);
+    destructor Destroy; override;
     procedure EnableSSL(PrivateKeyFile, CertificateFile, CertPassword: ansistring);
     property IP: ansistring read FIP;
     property Port: ansistring read FPort;
@@ -357,6 +358,14 @@ begin
   FSSLContext:=TOpenSSLContext.Create;
   {$ENDIF}
   inherited Create(False);
+end;
+
+destructor TWebserverListener.Destroy; 
+begin
+  inherited Destroy;
+  {$IFDEF OPENSSL_SUPPORT}
+  FSSLContext.Free;
+  {$ENDIF}
 end;
 
 procedure TWebserverListener.EnableSSL(PrivateKeyFile, CertificateFile, CertPassword: ansistring);
