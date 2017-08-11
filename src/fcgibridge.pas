@@ -158,10 +158,15 @@ begin
 end;
 
 procedure TFastCGIBridgeSocket.ConnectionClosed;
+var
+  header: FCGI_Header;
 begin
-  FHandle:=Connect;
-  fpfcntl(FHandle, F_SetFl, fpfcntl(FHandle, F_GetFl, 0) or O_NONBLOCK);
-  AddHandle(FHandle);
+  FBroken:=True;
+  if Assigned(FOnEvent) then
+  begin
+    header.reqtype:=FCGI_END_REQUEST;
+    FOnEvent(@header, '');
+  end;
 end;
 
 constructor TFastCGIBridgeSocket.Create(AParent: TEpollWorkerThread; IP,
@@ -236,6 +241,11 @@ begin
           Setlength(temp, bufRead);
         ProcessData(temp);
       end else
+      begin
+        ProcessData('');
+        RemoveHandle(FHandle);
+        ConnectionClosed;
+      end;
     until bufRead <> MaxTempBufferSize;
   end;
   if (Event.Events and EPOLLHUP<>0) or (Event.Events and EPOLLERR <> 0) then
@@ -253,10 +263,10 @@ var
 begin
   Rec.reqtype:=ReqType;
   Rec.version:=1;
-  Rec.paddingLength:=0;
+  Rec.paddingLength:=0; //7 - ((SizeOf(Rec) + Length) and 7);
   Rec.requestID:=SwapWord(Id);
   Rec.contentLength:=SwapWord(Length);
-  Setlength(Foo, SizeOf(Rec) + Length);
+  Setlength(Foo, SizeOf(Rec) + Length + Rec.paddingLength);
   Move(Rec, Foo[1], SizeOf(rec));
   if Length>0 then
     Move(Data^, foo[SizeOf(Rec)+1], Length);

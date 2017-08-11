@@ -64,9 +64,19 @@ uses
 { TWebserverFastCGIInstance }
 
 procedure TWebserverFastCGIInstance.EnvCallback(const Name, Value: ansistring);
+
+  function EncodeLength(Length: Integer): ansistring;
+  begin
+    if Length>127 then
+    begin
+      result:=Chr(128 + ((Length shr 24) and 127)) + Chr(Length shr 16) + Chr(Length shr 8) + Chr(Length);
+    end else
+      result:=Chr(Length);
+  end;
+
 begin
   if Value<>'' then
-  FEnv:=FEnv + Chr(Length(Name))+Chr(Length(Value))+Name+Value;
+  FEnv:=FEnv + EncodeLength(Length(Name))+EncodeLength(Length(Value))+Name+Value;
 end;
 
 procedure TWebserverFastCGIInstance.SendData(const Data: ansistring);
@@ -153,18 +163,28 @@ begin
     end else
     FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1], Length(Data));
   end;
+  if finished then
+    FFastCGI.SendRequest(FCGI_STDIN, FId, nil, 0);
 end;
 
 procedure TWebserverFastCGIInstance.FCGIEvent(Header: PFCGI_Header;
   Data: ansistring);
 begin
-  //Writeln('Got event ', Header^.reqtype,' ', Length(Data));
   case Header^.reqtype of
     FCGI_STDOUT: SendData(Data);
     FCGI_STDERR: dolog(llError,'FCGI-error: '+Data);
     FCGI_END_REQUEST:
       begin
-        SendData('');
+        if FFastCGI.Broken then
+        begin
+          FClient.OnPostData:=nil;
+          FClient.OnDisconnect:=nil;
+          if not FHeaderSent then
+            FClient.SendStatusCode(502)
+          else
+            FClient.Close;
+        end else
+          SendData('');
         Free;
       end;
   end;
