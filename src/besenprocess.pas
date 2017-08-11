@@ -47,12 +47,14 @@ type
     procedure FinalizeObject; override;
     procedure StopProcess;
   public
+    destructor Destroy; override;
   published
     procedure start(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure stop(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure addEnvironment(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure write(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure writeln(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    procedure isTerminated(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     property onData: TBESENObjectFunction read FOnData write FOnData;
     property onTerminate: TBESENObjectFunction read FOnTerminate write FOnTerminate;
   end;
@@ -123,6 +125,7 @@ end;
 
 { TBESENProcess }
 
+
 procedure TBESENProcess.ConstructObject(const ThisArgument: TBESENValue;
   Arguments: PPBESENValues; CountArguments: integer);
 var
@@ -174,6 +177,9 @@ begin
   FOnTerminate:=nil;
   StopProcess;
   inherited FinalizeObject;
+
+  if Assigned(FProcess) then
+    FreeAndNil(FProcess);
 end;
 
 procedure TBESENProcess.StopProcess;
@@ -200,6 +206,13 @@ begin
         TBESENInstance(Instance).OutputException(e, 'Process.onTerminate');
     end;
   end;
+end;
+
+destructor TBESENProcess.Destroy;
+begin
+  inherited Destroy;
+  if Assigned(FProcess) then
+    FreeAndNil(FProcess);
 end;
 
 procedure TBESENProcess.start(const ThisArgument: TBESENValue;
@@ -284,6 +297,16 @@ begin
   end;
   s:=s+#10;
   FProcess.Input.WriteBuffer(s[1], Length(s));
+end;
+
+procedure TBESENProcess.isTerminated(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+begin
+  if Assigned(FProcess) then
+    resultValue:=BESENBooleanValue(not FProcess.Running)
+  else
+    resultValue:=BESENBooleanValue(True);
 end;
 
 end.
