@@ -625,7 +625,9 @@ begin
     begin
       Fhost.Files.Release(FFile);
       if not FHost.IsExternalScript(target, Self) then
-        SendStatusCode(404);
+        SendStatusCode(404)
+      else
+        CheckMessageBody;
       Exit;
     end else
     begin
@@ -637,6 +639,7 @@ begin
   // IsExternalScript will invoke the script processor by itself
   if FHost.IsExternalScript(target, Self) then
   begin
+    CheckMessageBody;
     FHost.Files.Release(FFile);
     Exit;
   end;
