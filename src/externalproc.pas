@@ -26,7 +26,7 @@ type
     FData: ansistring;
     FBuffer: array[0..32767] of Char;
   protected
-    function DataReady(Event: epoll_event): Boolean; override;
+    procedure DataReady(Event: epoll_event); override;
     procedure SendData;
   public
     constructor Create(AParent: TEpollWorkerThread; AFilename, AParameters, AEnv: ansistring);
@@ -42,13 +42,12 @@ uses
 
 { TExternalProc }
 
-function TExternalProc.DataReady(Event: epoll_event): Boolean;
+procedure TExternalProc.DataReady(Event: epoll_event);
 var
   BufRead: Integer;
   i: Integer;
   s: ansistring;
 begin
-  result:=True;
   if (Event.Events and EPOLLIN<>0) then
   begin
     // got data
@@ -80,7 +79,6 @@ begin
     RemoveHandle(FProcess.Output.Handle);
     RemoveHandle(FProcess.Stderr.Handle);
     SendData;
-    result:=False;
   end;
 end;
 

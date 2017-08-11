@@ -102,6 +102,7 @@ type
     procedure AddCustomHandler(url: string; Handler: TEpollWorkerThread);
     procedure AddCustomStatusPage(StatusCode: Word; URI: string);
     procedure AddCGI(urlPrefix, extension, binary, parameters: ansistring);
+    procedure AddFastCGISocket(urlPrefix, extension, host, port: ansistring);
     procedure ApplyResponseHeader(const Response: THTTPReply);
     procedure AddWhiteListProcess(const Executable: ansistring);
     function IsProcessWhitelisted(const Executable: ansistring): Boolean;
@@ -447,6 +448,20 @@ begin
   FExternalScriptTypes[i].ScriptType:=esCGI;
 end;
 
+procedure TWebserverSite.AddFastCGISocket(urlPrefix, extension, host,
+  port: ansistring);
+var
+  i: Integer;
+begin
+  i:=Length(FExternalScriptTypes);
+  Setlength(FExternalScriptTypes, i+1);
+  FExternalScriptTypes[i].UrlPrefix:=urlPrefix;
+  FExternalScriptTypes[i].Extension:=extension;
+  FExternalScriptTypes[i].ParamA:=host;
+  FExternalScriptTypes[i].ParamB:=port;
+  FExternalScriptTypes[i].ScriptType:=esFastCGI;
+end;
+
 procedure TWebserverSite.ApplyResponseHeader(const Response: THTTPReply);
 var
   i: Integer;
@@ -567,6 +582,9 @@ begin
       case FExternalScriptTypes[i].ScriptType of
         esCGI: TWebserverCGIInstance.Create(Client.Parent, THTTPConnection(Client),
           FExternalScriptTypes[i].ParamA, FExternalScriptTypes[i].ParamB);
+        esFastCGI: with TWebserverFastCGIInstance.Create(Client.Parent, THTTPConnection(Client),
+          FExternalScriptTypes[i].ParamA, FExternalScriptTypes[i].ParamB) do
+          if Broken then Free;
       end;
       result:=True;
       Exit;

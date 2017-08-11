@@ -36,20 +36,30 @@ type
 
   TWebserverFastCGIInstance = class
   private
+    FBroken: Boolean;
     FClient: THTTPConnection;
     FFastCGI: TAbstractFastCGIBridge;
     FEnv: ansistring;
+    FId: word;
+    FBacklog: ansistring;
+    FHeaderSent: Boolean;
     procedure EnvCallback(const Name, Value: ansistring);
   protected
+    procedure SendData(const Data: ansistring);
     procedure ClientDisconnect(Sender: TEPollSocket);
     procedure InputData(Sender: THTTPConnection; const Data: ansistring; finished: Boolean);
-    procedure FCGIEvent(Header: PFCGI_Header; Data: Pointer; Length: Integer);
+    procedure FCGIEvent(Header: PFCGI_Header; Data: ansistring);
   public
     constructor Create(AParent: TEpollWorkerThread; AClient: THTTPConnection; Host, Port: ansistring);
     destructor Destroy; override;
+    property Broken: Boolean read FBroken;
   end;
 
 implementation
+
+uses
+  Math,
+  logging;
 
 { TWebserverFastCGIInstance }
 
@@ -59,27 +69,116 @@ begin
   FEnv:=FEnv + Chr(Length(Name))+Chr(Length(Value))+Name+Value;
 end;
 
+procedure TWebserverFastCGIInstance.SendData(const Data: ansistring);
+var
+  status, s2, s3: ansistring;
+  i, j, k: Integer;
+begin
+  if not FHeaderSent then
+  begin
+    FBacklog:=FBacklog + Data;
+    if Pos(#13#10#13#10, FBacklog)>0 then
+    begin
+      // parse header-entries passed by script
+      i:=1; // end position of line
+      j:=1; // start position of line
+      k:=0; // position of ":"
+      while i+1<=Length(FBacklog) do
+      begin
+        if (FBacklog[i]=#13)and(FBacklog[i+1]=#10) then
+        begin
+          if k<>0 then
+          begin
+            s2:=Copy(FBacklog, j, k-j);
+            s3:=Copy(FBacklog, k+1, i-(k+1));
+            if s2='Status' then
+              status:=s3
+            else
+              FClient.reply.header.Add(s2, s3);
+          end else
+          if i=j then
+            Break
+          else
+          begin
+            // invalid?
+          end;
+
+          k:=0;
+          Inc(i);
+          j:=i+1;
+        end else
+        if (FBacklog[i]=':')and(k=0) then
+          k:=i;
+
+        Inc(i);
+      end;
+      Delete(FBacklog, 1, i+1);
+      FHeaderSent:=True;
+      FClient.Reply.header.Add('Transfer-Encoding', 'chunked');
+      FClient.SendRaw(FClient.reply.build(status));
+      if FClient.Header.action = 'HEAD' then
+        FFastCGI.OnEvent:=nil;
+
+      if Length(FBacklog)>0 then
+      begin
+        FClient.SendRaw(IntToHex(Length(FBacklog), 1)+#13#10 + FBacklog + #13#10);
+        FBacklog:='';
+      end;
+    end;
+    Exit;
+  end;
+  FClient.SendRaw(IntToHex(Length(Data), 1)+#13#10 + Data + #13#10);
+end;
+
 procedure TWebserverFastCGIInstance.ClientDisconnect(Sender: TEPollSocket);
 begin
-  Writeln('Disconnect');
+  Free;
 end;
 
 procedure TWebserverFastCGIInstance.InputData(Sender: THTTPConnection;
   const Data: ansistring; finished: Boolean);
+var
+  i, j: Integer;
 begin
-  Writeln('input');
+  if Length(Data)>0 then
+  begin
+    if Length(Data)>65535 then
+    begin
+      i:=0;
+      while Length(Data)-i>0 do
+      begin
+        j:=Min(65535, Length(Data)-i);
+        FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1+i], j);
+      end;
+    end else
+    FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1], Length(Data));
+  end else
+  begin
+    Writeln('what now?');
+  end;
 end;
 
 procedure TWebserverFastCGIInstance.FCGIEvent(Header: PFCGI_Header;
-  Data: Pointer; Length: Integer);
+  Data: ansistring);
 begin
-  Writeln('Data ', length);
+  Writeln('AAA');
+  //Writeln('Got event ', Header^.reqtype,' ', Length(Data));
+  case Header^.reqtype of
+    FCGI_STDOUT: SendData(Data);
+    FCGI_STDERR: dolog(llError,'FCGI-error: '+Data);
+    FCGI_END_REQUEST:
+      begin
+        Writeln('BBB');
+        SendData('');
+        Free;
+        Writeln('CCC');
+      end;
+  end;
+  Writeln('DDD');
 end;
 
 constructor TWebserverFastCGIInstance.Create(AParent: TEpollWorkerThread;
   AClient: THTTPConnection; Host, Port: ansistring);
-var
-  id: word;
 begin
   FClient:=AClient;
   FClient.OnDisconnect:=ClientDisconnect;
@@ -89,13 +188,25 @@ begin
   FFastCGI:=TFastCGIBridgeSocket.Create(AParent, Host, Port);
   FFastCGI.OnEvent:=FCGIEvent;
 
-  id:=FFastCGI.BeginRequest;
-  FFastCGI.SetParameters(id, FEnv);
-  FFastCGI.SetParameters(id, '');
+  FBroken:=FFastCGI.Broken;
+  if FBroken then
+  begin
+    FClient.OnDisconnect:=nil;
+    FClient.OnPostData:=nil;
+    FClient.SendStatusCode(502);
+  end else
+  begin
+    FId:=FFastCGI.BeginRequest;
+    FFastCGI.SetParameters(FId, FEnv);
+    FFastCGI.SetParameters(FId, '');
+  end;
 end;
 
 destructor TWebserverFastCGIInstance.Destroy;
 begin
+  FClient.OnDisconnect:=nil;
+  FClient.OnPostData:=nil;
+  FFastCGI.DelayedFree;
   inherited Destroy;
 end;
 
@@ -131,7 +242,6 @@ var
 begin
   s:=Data;
   status:='200 OK';
-
 
   // parse header-entries passed by script
   i:=1; // end position of line
@@ -209,7 +319,8 @@ begin
   if Assigned(FProc) then
   begin
     FProc.OnData:=nil;
-    FreeAndNil(FProc);
+    FProc.DelayedFree;
+    FProc:=nil;
   end;
   if Assigned(FClient) then
   begin

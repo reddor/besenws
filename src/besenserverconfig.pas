@@ -42,6 +42,8 @@ type
     procedure SetAutoUpdate(AValue: LongBool);
   published
     procedure addCGIHandler(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+
+    procedure addFastCGIHandler(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addHostname(host) - binds a host to this site. requests made to this host will be processed by this site }
     procedure addHostname(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     { addForward(url, newUrl) - redirects requests from "url" to newUrl" using a 301 status code
@@ -226,6 +228,23 @@ begin
     args:='';
 
   FSite.AddCGI(prefix, ext, binary, args);
+end;
+
+procedure TBESENWebserverSite.addFastCGIHandler(
+  const ThisArgument: TBESENValue; Arguments: PPBESENValues;
+  CountArguments: integer; var ResultValue: TBESENValue);
+var
+  prefix, ext, host, port: ansistring;
+begin
+  if (CountArguments<4) or (not Assigned(FSite)) then
+    Exit;
+
+  prefix:=ansistring(TBESEN(Instance).ToStr(Arguments^[0]^));
+  ext:=ansistring(TBESEN(Instance).ToStr(Arguments^[1]^));
+  host:=ansistring(TBESEN(Instance).ToStr(Arguments^[2]^));
+  port:=ansistring(TBESEN(Instance).ToStr(Arguments^[3]^));
+
+  FSite.AddFastCGISocket(prefix, ext, host, port);
 end;
 
 procedure TBESENWebserverSite.addHostname(const ThisArgument: TBESENValue;

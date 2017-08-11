@@ -102,7 +102,6 @@ type
     procedure ProcessWebsocket;
     procedure SendReply;
     function ExecuteScript(const Target: ansistring; const StatusCode: ansistring = ''): Boolean;
-    procedure SendStatusCode(const Code: Word);
   public
     constructor Create(Server: TWebserver; Socket: TSocket);
     destructor Destroy; override;
@@ -112,7 +111,7 @@ type
     procedure UpgradeToWebsocket;
     function CheckTimeout: Boolean; override;
     procedure GetCGIEnvVars(Callback: TCGIEnvCallback);
-
+    procedure SendStatusCode(const Code: Word);
     procedure SendWS(data: ansistring; Flush: Boolean = True);
     procedure SendContent(mimetype, data: ansistring; result: ansistring = '200 OK');
     property wsVersion: TWebsocketVersion read FVersion write FVersion;

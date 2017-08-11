@@ -41,7 +41,7 @@ type
     FParent: TBESENClientSocket;
     FSocket: THandle;
   protected
-    function DataReady(Event: epoll_event): Boolean; override;
+    procedure DataReady(Event: epoll_event); override;
   public
     constructor Create(Parent: TBESENClientSocket);
     destructor Destroy; override;
@@ -103,11 +103,10 @@ uses
 
 { TBESENClientSocketDataHandler }
 
-function TBESENClientSocketDataHandler.DataReady(Event: epoll_event): Boolean;
+procedure TBESENClientSocketDataHandler.DataReady(Event: epoll_event);
 var
   s: ansistring;
 begin
-  result:=True;
   if (Event.Events and EPOLLIN<>0) then
   begin
     s:=FParent.Socket.RecvBufferStr(1024 * 64, 0);

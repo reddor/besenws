@@ -19,7 +19,7 @@ uses
 type
   { TFastCGIBridge }
 
-  TFastCGIEvent = procedure(Header: PFCGI_Header; Data: Pointer; Length: Integer) of object;
+  TFastCGIEvent = procedure(Header: PFCGI_Header; Data: ansistring) of object;
 
   { TAbstractFastCGIBridge }
 
@@ -29,18 +29,20 @@ type
     FData: ansistring;
     FOnEvent: TFastCGIEvent;
   protected
+    FBroken: Boolean;
     FHandle: THandle;
-    function DataReady(Event: epoll_event): Boolean; override;
+    procedure DataReady(Event: epoll_event); override;
     procedure Send(Data: Pointer; Length: Integer); virtual; abstract;
     function Receive(Data: Pointer; Length: Integer): Integer; virtual; abstract;
     procedure ConnectionClosed; virtual; abstract;
-    function ProcessData(const Data: ansistring): Boolean;
+    procedure ProcessData(const Data: ansistring);
   public
     constructor Create(AParent: TEpollWorkerThread; AHandle: THandle);
     function BeginRequest: Word;
     procedure SetParameters(ID: Word; Parameters: ansistring);
     procedure SendRequest(ReqType: Byte; Id: Word; Data: Pointer; Length: Word);
     property OnEvent: TFastCGIEvent read FOnEvent write FOnEvent;
+    property Broken: Boolean read FBroken;
   end;
 
   { TSocketFastCGIBridge }
@@ -132,8 +134,15 @@ begin
   sock:=TTCPBlockSocket.Create;
   try
     sock.Connect(FIP, FPort);
-    result:=sock.Socket;
-    sock.Socket:=-1;
+    FBroken:=sock.LastError<>0;
+    if FBroken then
+    begin
+      result:=THandle(-1);
+    end else
+    begin
+      result:=sock.Socket;
+      sock.Socket:=-1;
+    end;
   finally
     Sock.Free;
   end;
@@ -155,7 +164,6 @@ begin
   FHandle:=Connect;
   fpfcntl(FHandle, F_SetFl, fpfcntl(FHandle, F_GetFl, 0) or O_NONBLOCK);
   AddHandle(FHandle);
-
 end;
 
 constructor TFastCGIBridgeSocket.Create(AParent: TEpollWorkerThread; IP,
@@ -213,13 +221,11 @@ end;
 
 { TFastCGIBridge }
 
-function TAbstractFastCGIBridge.DataReady(Event: epoll_event): Boolean;
+procedure TAbstractFastCGIBridge.DataReady(Event: epoll_event);
 var
   temp: ansistring;
   bufRead: Integer;
 begin
-  result:=True;
-  Writeln('got event ', Event.Events);
   if (Event.Events and EPOLLIN<>0) then
   begin
     // got data
@@ -269,12 +275,14 @@ end;
 constructor TAbstractFastCGIBridge.Create(AParent: TEpollWorkerThread; AHandle: THandle
   );
 begin
-  Writeln(GetLastOSError);
   inherited Create(AParent);
   FHandle:=AHandle;
   FCurrentID:=1;
-  fpfcntl(FHandle, F_SetFl, fpfcntl(FHandle, F_GetFl, 0) or O_NONBLOCK);
-  AddHandle(FHandle);
+  if FHandle <> THandle(-1) then
+  begin
+    fpfcntl(FHandle, F_SetFl, fpfcntl(FHandle, F_GetFl, 0) or O_NONBLOCK);
+    AddHandle(FHandle);
+  end;
 end;
 
 function TAbstractFastCGIBridge.BeginRequest: Word;
@@ -302,11 +310,10 @@ begin
     SendRequest(FCGI_PARAMS, id, nil, 0);
 end;
 
-function TAbstractFastCGIBridge.ProcessData(const Data: ansistring): Boolean;
+procedure TAbstractFastCGIBridge.ProcessData(const Data: ansistring);
 var
   FHeader: PFCGI_Header;
 begin
-  result:=True;
   FData:=FData + Data;
   while Length(FData)>0 do
   begin
@@ -320,7 +327,7 @@ begin
     if FHeader^.reqtype < FCGI_MAXTYPE then
     begin
       if Assigned(FOnEvent) then
-        FOnEvent(FHeader, @FData[SizeOf(FCGI_Header)], SwapWord(FHeader^.contentLength));
+        FOnEvent(FHeader, Copy(FData, 1 + SizeOf(FCGI_Header), SwapWord(FHeader^.contentLength)));
     end;
     Delete(FData, 1, SizeOf(FCGI_Header) + SwapWord(FHeader^.contentLength) + FHeader^.paddingLength);
   end;

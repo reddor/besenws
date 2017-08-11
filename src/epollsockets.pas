@@ -127,18 +127,24 @@ type
 
   { TCustomEpollHandle }
 
+  { TCustomEpollHandler }
+
   TCustomEpollHandler = class
   private
+    FInCallback: Boolean;
     FParent: TEpollWorkerThread;
     FHandles: array of THandle;
+    FWantFree: Boolean;
   protected
     procedure AddHandle(Handle: THandle);
     procedure RemoveHandle(Handle: THandle);
-    { must return false if object has been freed, to avoid use-after-free in epoll loop.. }
-    function DataReady(Event: epoll_event): Boolean; virtual; abstract;
+    procedure DataReady(Event: epoll_event); virtual; abstract;
   public
     constructor Create(AParent: TEpollWorkerThread);
     destructor Destroy; override;
+    procedure DelayedFree; virtual;
+    property WantFree: Boolean read FWantFree;
+    property InCallback: Boolean read FInCallback write FInCallback;
   end;
 
   { TEpollWorkerThread }
@@ -148,8 +154,8 @@ type
     FEpollFD: integer;
     FSocketCount: Integer;
     FSockets: array[0..MaxConnectionsPerThread-1] of TEPollSocket;
-    FSocketFreeQueuePos: Integer;
-    FSocketFreeQueue: array[0..MaxEpollEventsPerThread-1] of TEpollSocket;
+    FFreeQueuePos: Integer;
+    FFreeQueue: array[0..MaxEpollEventsPerThread-1] of TObject;
     FEpollEvents: array[0..MaxEpollEventsPerThread-1] of epoll_event;
     FParent: TObject;
     FTicks: Integer;
@@ -242,10 +248,24 @@ end;
 
 destructor TCustomEpollHandler.Destroy;
 begin
+  if FInCallback then
+    dolog(llFatal, 'CustomEpollHandler.Destroy in callback');
+
   while Length(FHandles)>0 do
     RemoveHandle(FHandles[Length(FHandles)-1]);
 
   inherited Destroy;
+end;
+
+procedure TCustomEpollHandler.DelayedFree;
+begin
+  if FInCallback and FWantFree then
+    Exit;
+
+  if not FInCallback then
+    Free
+  else
+    FWantFree:=True;
 end;
 
 { TEPollSocket }
@@ -568,7 +588,7 @@ begin
   try
   while (not Terminated) do
   begin
-    FSocketFreeQueuePos:=0;
+    FFreeQueuePos:=0;
 
     i := epoll_wait(epollfd, @FEpollEvents[0], MaxEpollEventsPerThread, EpollWaitTime);
     for j:=0 to i-1 do
@@ -587,8 +607,17 @@ begin
     end else
     if TObject(FEPollEvents[j].data.ptr) is TCustomEpollHandler then
     begin
-      if not TCustomEpollHandler(FEPollEvents[j].data.ptr).DataReady(FEpollEvents[j]) then
-        Break;
+      with TCustomEpollHandler(FEPollEvents[j].data.ptr) do
+      begin
+        InCallback:=True;
+        DataReady(FEpollEvents[j]);
+        InCallback:=False;
+        if WantFree then
+        begin
+          FFreeQueue[FFreeQueuePos]:=TObject(FEPollEvents[j].data.ptr);
+          Inc(FFreeQueuePos);
+        end;
+      end;
     end
     else
     begin
@@ -616,12 +645,15 @@ begin
 
       if (conn.FParent = Self) and (conn.WantClose) then
       begin
-        FSocketFreeQueue[FSocketFreeQueuePos]:=conn;
-        Inc(FSocketFreeQueuePos);
+        FFreeQueue[FFreeQueuePos]:=conn;
+        Inc(FFreeQueuePos);
       end;
     end;
-    for i:=0 to FSocketFreeQueuePos-1 do
-      RemoveSocket(FSocketFreeQueue[i]);
+    for i:=0 to FFreeQueuePos-1 do
+      if FFreeQueue[i] is TEPollSocket then
+        RemoveSocket(TEPollSocket(FFreeQueue[i]))
+      else
+        FFreeQueue[i].Free;
     ThreadTick;
   end;
 
