@@ -152,29 +152,22 @@ begin
       end;
     end else
     FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1], Length(Data));
-  end else
-  begin
-    Writeln('what now?');
   end;
 end;
 
 procedure TWebserverFastCGIInstance.FCGIEvent(Header: PFCGI_Header;
   Data: ansistring);
 begin
-  Writeln('AAA');
   //Writeln('Got event ', Header^.reqtype,' ', Length(Data));
   case Header^.reqtype of
     FCGI_STDOUT: SendData(Data);
     FCGI_STDERR: dolog(llError,'FCGI-error: '+Data);
     FCGI_END_REQUEST:
       begin
-        Writeln('BBB');
         SendData('');
         Free;
-        Writeln('CCC');
       end;
   end;
-  Writeln('DDD');
 end;
 
 constructor TWebserverFastCGIInstance.Create(AParent: TEpollWorkerThread;

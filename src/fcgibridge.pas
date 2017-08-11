@@ -114,8 +114,7 @@ end;
 
 procedure TFastCGIBridgeFile.ConnectionClosed;
 begin
-  // well sheeit
-  Writeln('connection closed');
+
 end;
 
 constructor TFastCGIBridgeFile.Create(AParent: TEpollWorkerThread;
@@ -160,7 +159,6 @@ end;
 
 procedure TFastCGIBridgeSocket.ConnectionClosed;
 begin
-  Writeln('connection closed');
   FHandle:=Connect;
   fpfcntl(FHandle, F_SetFl, fpfcntl(FHandle, F_GetFl, 0) or O_NONBLOCK);
   AddHandle(FHandle);
@@ -194,7 +192,6 @@ end;
 
 procedure TFastCGIBridgeProcess.ConnectionClosed;
 begin
-  Writeln('connection closed');
   FProcess.Terminate(0);
   FProcess.Execute;
 end;
@@ -229,7 +226,6 @@ begin
   if (Event.Events and EPOLLIN<>0) then
   begin
     // got data
-    Writeln('got data');
     Setlength(temp, MaxTempBufferSize);
     repeat
       bufRead:=Receive(@temp[1], Length(Temp));
@@ -240,13 +236,10 @@ begin
           Setlength(temp, bufRead);
         ProcessData(temp);
       end else
-      if bufRead<0 then
-        Writeln('error ', GetLastOSError, ' ', bufRead, ' ', socketerror);
     until bufRead <> MaxTempBufferSize;
   end;
   if (Event.Events and EPOLLHUP<>0) or (Event.Events and EPOLLERR <> 0) then
   begin
-    Writeln('Epoll hup! ', GetLastOSError);
     RemoveHandle(FHandle);
     ConnectionClosed;
   end;
