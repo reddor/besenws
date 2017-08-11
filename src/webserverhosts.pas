@@ -94,6 +94,7 @@ type
     procedure Rescan;
     procedure AddScriptDirectory(directory, filename: string);
     procedure AddForward(target, NewTarget: string);
+    procedure AddIndexPage(name: string);
     function IsScriptDir(target: string; out Script, Params: string): Boolean;
     function IsForward(target: string; out NewTarget: string): Boolean;
     procedure AddResponseHeader(const name, value: ansistring);
@@ -275,6 +276,9 @@ begin
   AddResponseHeader('X-Frame-Options', 'SAMEORIGIN');
   AddResponseHeader('X-XSS-Protection', '1');
   AddResponseHeader('X-Content-Type-Options', 'nosniff');
+
+  AddIndexPage('index.htm');
+  AddIndexPage('index.html');
   Rescan;
 end;
 
@@ -353,6 +357,15 @@ end;
 procedure TWebserverSite.AddForward(target, NewTarget: string);
 begin
   FForwards[target]:=NewTarget;
+end;
+
+procedure TWebserverSite.AddIndexPage(name: string);
+var
+  i: Integer;
+begin
+  i:=Length(FIndexNames);
+  Setlength(FIndexNames, i+1);
+  FIndexNames[i]:=name;
 end;
 
 function TWebserverSite.IsScriptDir(target: string; out Script, Params: string
@@ -552,7 +565,7 @@ var
   i: Integer;
 begin
   result:=nil;
-  for i:=0 to Length(FIndexNames)-1 do
+  for i:=Length(FIndexNames)-1 downto 0 do
   begin
     result:=FFileCache.Find(target + FIndexNames[i]);
     if Assigned(result) then
