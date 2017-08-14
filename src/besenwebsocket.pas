@@ -25,6 +25,7 @@ uses
   SysUtils,
   Classes,
   SyncObjs,
+  contnrs,
   {$i besenunits.inc},
   beseninstance,
   besenevents,
@@ -33,6 +34,7 @@ uses
   webserver;
 
 type
+  //TOpenSSLBesenWorkAroundThread = class(TThread)
   { TBESENWebsocketClient }
 
   { client object - this is created automatically for each new connection and
@@ -44,10 +46,13 @@ type
   TBESENWebsocketClient = class(TBESENNativeObject)
   private
     FIsRequest: Boolean;
+    FMimeType: TBESENString;
     FReply: TBESENString;
     FConnection: THTTPConnection;
+    FReturnType: TBESENString;
     function GetHostname: string;
     function GetLag: Integer;
+    function GetParameter: TBESENString;
     function GetPingTime: Integer;
     function GetPongTime: Integer;
     function GetPostData: string;
@@ -75,6 +80,12 @@ type
     property pingTime: Integer read GetPingTime write SetPingTime;
     { maximum timeframe for a ping-reply before the connection is dropped }
     property maxPongTime: Integer read GetPongTime write SetPongTime;
+    { the mime type for the response. usually "text/html" }
+    property mimeType: TBESENString read FMimeType write FMimeType;
+    { the http response message. usually "200 OK" }
+    property returnType: TBESENString read FReturnType write FReturnType;
+    { the http request uri parameter }
+    property parameter: TBESENString read GetParameter;
   end;
 
   TBESENWebsocket = class;
@@ -116,6 +127,7 @@ type
     FClients: array of TBESENWebsocketClient;
     FIdleTicks: Integer;
     FUrl: TBESENString;
+    FFlushList: TObjectList;
   protected
     procedure LoadBESEN;
     procedure UnloadBESEN;
@@ -128,6 +140,7 @@ type
   public
     constructor Create(aParent: TWebserver; ASite: TWebserverSite; AFile: string; Url: TBESENString);
     destructor Destroy; override;
+    procedure AddConnectionToFlush(AConnection: THTTPConnection);
     property Site: TWebserverSite read FSite;
     property AutoUnload: Integer read FAutoUnload write FAutoUnload;
   end;
@@ -161,6 +174,7 @@ begin
   FInstance:=nil;
   FURL:=Url;
   FAutoUnload:=20000;
+  FFlushList:=TObjectList.Create;
   inherited Create(aParent);
 end;
 
@@ -168,6 +182,13 @@ destructor TBESENWebsocket.Destroy;
 begin
   inherited; 
   UnloadBESEN;
+  FFlushList.Free;
+end;
+
+procedure TBESENWebsocket.AddConnectionToFlush(AConnection: THTTPConnection);
+begin
+  if FFlushList.IndexOf(AConnection) = -1 then
+    FFLushList.Add(AConnection);
 end;
 
 procedure TBESENWebsocket.LoadBESEN;
@@ -271,6 +292,10 @@ begin
   end;
   FInstance.GarbageCollector.UnProtect(TBESENObject(client));
 
+  i:=FFlushList.IndexOf(Sender);
+  if i>=0 then
+    FFlushList.Delete(i);
+
   for i:=0 to Length(FClients)-1 do
     if FClients[i] = client then
     begin
@@ -354,9 +379,18 @@ begin
 end;
 
 procedure TBESENWebsocket.ThreadTick;
+var
+  i: Integer;
 begin
   if Assigned(FInstance) then
   begin
+    if FFlushList.Count>0 then
+    begin
+      for i:=0 to FFLushlist.Count-1 do
+        THTTPConnection(FFLushList[i]).FlushSendbuffer;
+      FFlushList.Clear;
+    end;
+
     FInstance.ProcessHandlers;
     FInstance.GarbageCollector.Collect;
     if (Length(FClients)>0) then
@@ -378,6 +412,8 @@ procedure TBESENWebsocketClient.InitializeObject;
 begin
   FReply:='';
   FIsRequest:=False;
+  FMimeType:='text/html';
+  FReturnType:='200 OK';
   inherited; 
 end;
 
@@ -404,11 +440,12 @@ begin
   begin
     { BUG: Calling OpenSSL functions from a native script callback function
       can cause weird exceptions (from within OpenSSL). Nobody really knows why.
-      As a workaround you can disable BESEN JIT.
-
-      My plan for a better workaround is a separate thread from which the
-      openssl-send function is called. }
-    FConnection.SendWS(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)));
+      Therefore, when SSL is used, data is held back and sent after script execution
+      has completed
+      }
+    FConnection.SendWS(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), not FConnection.IsSSL);
+    if FConnection.IsSSL then
+     TBESENWebsocket(FConnection.Parent).AddConnectionToFlush(FConnection);
   end;
 end;
 
@@ -448,7 +485,7 @@ begin
   begin
     if FIsRequest then
     begin
-      FConnection.SendContent('text/html', BESENUTF16ToUTF8(FReply));
+      FConnection.SendContent(ansistring(FMimeType), BESENUTF16ToUTF8(FReply), ansistring(FReturnType));
     end;
     FConnection.Close;
   end;
@@ -460,6 +497,11 @@ begin
     result:=FConnection.Lag
   else
     result:=-1;
+end;
+
+function TBESENWebsocketClient.GetParameter: TBESENString;
+begin
+  result:=TBESENString(FConnection.Header.parameters);
 end;
 
 function TBESENWebsocketClient.GetPingTime: Integer;

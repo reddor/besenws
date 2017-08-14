@@ -72,10 +72,6 @@ type
     { reads up to Length(Data) bytes from socket - called by worker thread.
       'Data' acts as a temporary buffer }
     function ReadData(const Buffer: Pointer; BufferLength: Integer): Boolean;
-    { flush data that needs to be written to the socket - can be called manually,
-      but is also called from worker thread (e.g. when not all data can be sent
-      in one pass) }
-    function FlushSendbuffer: Boolean;
     { returns true when the socket can be closed, and all outgoing data has
       been sent }
     function WantClose: Boolean;
@@ -91,6 +87,10 @@ type
     { this frees the class. in derived classes this can be overridden to
       e.g. put this class instance back into a pool, instead of freeing }
     procedure Dispose; virtual;
+    { flush data that needs to be written to the socket - can be called manually,
+      but is also called from worker thread (e.g. when not all data can be sent
+      in one pass) }
+    function FlushSendbuffer: Boolean;
     { assigns a new socket to to reuse the class. Cleanup must have been called
       before }
     procedure Reassign(Socket: TSocket);

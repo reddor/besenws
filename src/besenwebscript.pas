@@ -120,7 +120,7 @@ end;
 
 function TBESENWebscriptHandler.GetParameter: TBESENString;
 begin
-  result:=widestring(FConnection.Header.parameters);
+  result:=TBESENString(FConnection.Header.parameters);
 end;
 
 function TBESENWebscriptHandler.GetReturnType: TBESENString;
