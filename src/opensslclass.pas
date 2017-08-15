@@ -21,7 +21,7 @@ type
     FSSLWantWrite: Boolean;
     procedure CheckSSLError(ErrNo: Longword);
   public
-    constructor Create(AParent: TAbstractSSLContext; AContext: PSSL_CTX; ASocket: TSocket);
+    constructor Create(AParent: TAbstractSSLContext; ASSL: PSSL);
     function Read(Buffer: Pointer; BufferSize: Integer): Integer; override;
     function Write(Buffer: Pointer; BufferSize: Integer): Integer; override;
     function WantWrite: Boolean; override;
@@ -55,15 +55,12 @@ begin
   result:=Length(s);
 end;
 
-{ TOpenSSLSession }
-
-procedure TOpenSSLSession.CheckSSLError(ErrNo: Longword);
+function CheckOpenSSLError(fssl: PSSL; ErrNo: Longword): integer;
 var
-  i: Integer;
   s: string;
 begin
-  i:=SslGetError(fssl, ErrNo);
-  case i of
+  result:=SslGetError(fssl, ErrNo);
+  case result of
     SSL_ERROR_NONE: dolog(llError, ': SSL Error - SSL_ERROR_NONE');
     SSL_ERROR_SSL: begin
       setlength(s, 256);
@@ -89,7 +86,7 @@ begin
     SSL_ERROR_WANT_WRITE:
     begin
       // openssl wants a
-      FSSLWantWrite:=True;
+      // FSSLWantWrite:=True;
       //FlushSendbuffer;
     end;
     SSL_ERROR_WANT_X509_LOOKUP: dolog(llError, ': SSL Read Error - SSL_ERROR_WANT_X509_LOOKUP');
@@ -101,28 +98,23 @@ begin
 
     SSL_ERROR_WANT_ACCEPT: dolog(llError, ': SSL Read Error - SSL_ERROR_WANT_ACCEPT');
     else
-      dolog(llError, ': SSL Read Error - Other #'+IntToStr(i));
+      dolog(llError, ': SSL Read Error - Other #'+IntToStr(result));
   end;
 end;
 
-constructor TOpenSSLSession.Create(AParent: TAbstractSSLContext;
-  AContext: PSSL_CTX; ASocket: TSocket);
-var
-  i: Integer;
+
+{ TOpenSSLSession }
+
+procedure TOpenSSLSession.CheckSSLError(ErrNo: Longword);
+begin
+  if CheckOpenSSLError(FSSL, ErrNo) = SSL_ERROR_WANT_WRITE then
+    FSSLWantWrite:=True;
+end;
+
+constructor TOpenSSLSession.Create(AParent: TAbstractSSLContext; ASSL: PSSL);
 begin
   inherited Create(AParent);
-
-  FSSL := SslNew(AContext);
-  if Assigned(FSSL) then
-  begin
-    i:=SslSetFd(FSSL, ASocket);
-    if i<=0 then
-      CheckSSLError(i);
-    i:=SslAccept(fssl);
-    if i<=0 then
-      CheckSSLError(i);
-  end else
-    dolog(llError, 'SSL_new() failed!');
+  FSSL := ASSL;
 end;
 
 function TOpenSSLSession.Read(Buffer: Pointer; BufferSize: Integer): Integer;
@@ -186,8 +178,32 @@ begin
 end;
 
 function TOpenSSLContext.StartSession(Socket: TSocket): TOpenSSLSession;
+var
+  ssl: PSSL;
+  i: INteger;
 begin
-  result:=TOpenSSLSession.Create(Self, FSSLContext, Socket);
+  result:=nil;
+  ssl := SslNew(FSSLContext);
+  if Assigned(ssl) then
+  begin
+    i:=SslSetFd(ssl, Socket);
+    if i>0 then
+      i:=SslAccept(ssl);
+    if i<=0 then
+    begin
+      case CheckOpenSSLError(ssl, i) of
+        SSL_ERROR_WANT_WRITE: ;
+        SSL_ERROR_WANT_READ: ;
+        else begin
+          SslFree(ssl);
+          ssl:=nil;
+        end;
+      end;
+    end;
+    if Assigned(ssl) then
+      result:=TOpenSSLSession.Create(Self, ssl);
+  end else
+    dolog(llError, 'SSL_new() failed!');
 end;
 
 initialization

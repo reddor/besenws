@@ -271,13 +271,14 @@ end;
 { TEPollSocket }
 
 procedure TEPollSocket.AddCallback;
+var
+  msg: ansistring;
 begin
   if not FParent.AddSocket(Self) then
   begin
-    dolog(llError, GetPeerName + ': Could not relocate to thread, dropping!');
+    // dolog(llError, GetPeerName + ': Could not relocate to thread, dropping!');
     FParent:=nil;
     FWantclose:=True;
-    //FSockets[i+k].OnDisconnect:=nil;
     Dispose;
   end;
 end;
@@ -301,6 +302,9 @@ end;
 
 procedure TEPollSocket.SendRaw(const Data: ansistring; Flush: Boolean);
 begin
+  if FWantClose then
+    Exit;
+
   if Assigned(FSSL) and FSSL.WantWrite then
   begin
     FOutbuffer2:=FOutbuffer2 + data;
@@ -504,11 +508,7 @@ begin
   if FIsSSL then
     Exit;
   FSSL:=FSSLContext.StartSession(FSocket);
-  if Assigned(fssl) then
-  begin
-    FIsSSL:=True;
-  end else
-    dolog(llError, 'SSL_new() failed!');
+  FIsSSL:=Assigned(fssl);
 end;
 
 procedure TEPollSocket.StopSSL;
@@ -649,12 +649,12 @@ begin
         Inc(FFreeQueuePos);
       end;
     end;
+    ThreadTick;
     for i:=0 to FFreeQueuePos-1 do
       if FFreeQueue[i] is TEPollSocket then
         RemoveSocket(TEPollSocket(FFreeQueue[i]))
       else
         FFreeQueue[i].Free;
-    ThreadTick;
   end;
 
   except
@@ -754,6 +754,7 @@ var
 begin
   if FSocketCount>=MaxConnectionsPerThread then
   begin
+    dolog(llDebug, 'worker thread is at maximum capacity, dropping connection!');
     result:=False;
     Exit;
   end;
@@ -765,6 +766,12 @@ begin
   begin
     Sock.StartSSL;
     Sock.WantSSL:=False;
+
+    if not Sock.IsSSL then
+    begin
+      result:=False;
+      Exit;
+    end;
   end;
 
   event.Events:=EPOLLIN;

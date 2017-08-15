@@ -255,7 +255,7 @@ procedure TBESENWebserverSite.addIndexPage(const ThisArgument: TBESENValue;
 begin
   if (CountArguments <1) or (not Assigned(FSite)) then
     Exit;
-  FSite.AddIndexPage(TBESEN(Instance).ToStr(Arguments^[0]^));
+  FSite.AddIndexPage(ansistring(TBESEN(Instance).ToStr(Arguments^[0]^)));
 end;
 
 procedure TBESENWebserverSite.addHostname(const ThisArgument: TBESENValue;

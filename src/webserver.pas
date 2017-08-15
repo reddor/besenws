@@ -113,7 +113,7 @@ type
     procedure GetCGIEnvVars(Callback: TCGIEnvCallback);
     procedure SendStatusCode(const Code: Word);
     procedure SendWS(data: ansistring; Flush: Boolean = True);
-    procedure SendContent(mimetype, data: ansistring; result: ansistring = '200 OK');
+    procedure SendContent(mimetype, data: ansistring; result: ansistring = '200 OK'; Flush: Boolean = True);
     property wsVersion: TWebsocketVersion read FVersion write FVersion;
     property OnWebsocketData: THTTPConnectionDataReceived read FOnWebsocketData write FOnWebsocketData;
     property OnPostData: THTTPConnectionPostDataReceived read FOnPostData write FOnPostData;
@@ -1277,7 +1277,8 @@ begin
   end;
 end;
 
-procedure THTTPConnection.SendContent(mimetype, data: ansistring;result:ansistring = '200 OK');
+procedure THTTPConnection.SendContent(mimetype, data: ansistring;
+  result: ansistring; Flush: Boolean);
 begin
   if mimetype<>'' then
     freply.header.add('Content-Type', mimetype);
@@ -1285,9 +1286,9 @@ begin
     freply.header.add('Content-Length', IntToStr(length(data)));
 
   if FHeader.action = 'HEAD' then
-    SendRaw(freply.build(result))
+    SendRaw(freply.build(result), Flush)
   else
-    SendRaw(freply.Build(result) + data);
+    SendRaw(freply.Build(result) + data, Flush);
 
   if Assigned(FOnPostData) then
   begin
@@ -1295,7 +1296,8 @@ begin
     FOnPostData:=nil;
   end;
 
-  CheckMessageBody; // this is just a courtesy call to remove bogus post-data from our inbuffer
+  if Flush then
+    CheckMessageBody; // this is just a courtesy call to remove bogus post-data from our inbuffer
 
   if not FKeepAlive then
     Close;

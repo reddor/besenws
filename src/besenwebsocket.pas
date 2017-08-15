@@ -485,7 +485,9 @@ begin
   begin
     if FIsRequest then
     begin
-      FConnection.SendContent(ansistring(FMimeType), BESENUTF16ToUTF8(FReply), ansistring(FReturnType));
+      FConnection.SendContent(ansistring(FMimeType), BESENUTF16ToUTF8(FReply), ansistring(FReturnType), not FConnection.IsSSL);
+      if FConnection.IsSSL then
+       TBESENWebsocket(FConnection.Parent).AddConnectionToFlush(FConnection);
     end;
     FConnection.Close;
   end;

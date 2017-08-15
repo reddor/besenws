@@ -28,7 +28,7 @@ uses
   SysUtils,
   syncobjs,
   filecache,
-  datautils,
+  contnrs,
   httphelper,
   jsonstore,
   epollsockets,
@@ -67,7 +67,7 @@ type
     FName, FPath: string;
     FParent: TWebserverSiteManager;
     FFileCache: TFileCache;
-    FCustomHandlers: THashtable;
+    FCustomHandlers: TFPObjectHashTable;
     FExternalScriptTypes: array of record
       ScriptType: TExternalScriptType;
       UrlPrefix: ansistring;
@@ -84,9 +84,9 @@ type
     end;
     FIndexNames: array of string;
     FWhitelistedProcesses: array of ansistring;
-    FForwards: TStringHashtable;
+    FForwards: TFPStringHashTable;
     FCustomStatusPages: array[CustomStatusPageMin..CustomStatusPageMax] of ansistring;
-    procedure ClearItem(Key: KString; Data: Pointer; var Continue: Boolean);
+    procedure ClearItem(Item: TObject; const Key: string; var Continue: Boolean);
   public
     constructor Create(Parent: TWebserverSiteManager; Path: ansistring);
     destructor Destroy; override;
@@ -126,14 +126,16 @@ type
   private
     FDefaultHost: TWebserverSite;
     FHosts: array of TWebserverSite;
-    FHostsByName: THashTable;
+    FHostsByName: TFPObjectHashTable;
     FPath: ansistring;
     FSharedScripts: TFileCache;
     FSharedScriptsDir: ansiString;
     FCacheThread: TFileCachingThread;
+    FHostToDelete: TWebserverSite;
     function GetTotalFileCount: longword;
     function GetTotalFileSize: longword;
     function GetTotalGZipFileSize: longword;
+    Procedure HostNameDeleteIterator(Item: TObject; const Key: string; var Continue: Boolean);
   public
     constructor Create(const BasePath: ansistring);
     destructor Destroy; override;
@@ -252,10 +254,10 @@ end;
 
 { TWebserverSite }
 
-procedure TWebserverSite.ClearItem(Key: KString; Data: Pointer;
+procedure TWebserverSite.ClearItem(Item: TObject; const Key: string;
   var Continue: Boolean);
 begin
-  TOBject(Data).free;
+  Item.free;
 end;
 
 constructor TWebserverSite.Create(Parent: TWebserverSiteManager;
@@ -263,9 +265,9 @@ constructor TWebserverSite.Create(Parent: TWebserverSiteManager;
 begin
   FCS:=TCriticalSection.Create;
   FStorage:=TJSONStore.Create;
-  FForwards:=TStringHashtable.Create;
+  FForwards:=TFPStringHashTable.Create;
   FFileCache:=TFileCache.Create;
-  FCustomHandlers:=THashtable.Create;
+  FCustomHandlers:=TFPObjectHashTable.Create(False);
 
   FParent:=Parent;
   FName:=Path;
@@ -430,6 +432,7 @@ end;
 
 procedure TWebserverSite.AddHostAlias(HostName: string);
 begin
+  Writeln('Adding host ', HostName);
   FParent.FHostsByName.Add(HostName, Self);
 end;
 
@@ -635,6 +638,18 @@ begin
     result:=result + FHosts[i].Files.TotalGZipFileSize;
 end;
 
+procedure TWebserverSiteManager.HostNameDeleteIterator(Item: TObject;
+  const Key: string; var Continue: Boolean);
+begin
+  if Item = FHostToDelete then
+  begin
+    Continue:=False;
+    FHostToDelete:=nil;
+    FHostsByName.Delete(key);
+  end else
+    Continue:=True;
+end;
+
 constructor TWebserverSiteManager.Create(const BasePath: ansistring);
 begin
   FPath:=BasePath+'sites/';
@@ -649,7 +664,7 @@ begin
   //if not FDefaultHost.Files.Exists('/index.html') then
   //  FDefaultHost.AddFile('/index.html', '<html><head><title>Nothing to see here</title></head><body>Default webserver string</body></html>');
 
-  FHostsByName:=THashtable.Create;
+  FHostsByName:=TFPObjectHashTable.Create(false);
 end;
 
 destructor TWebserverSiteManager.Destroy;
@@ -686,8 +701,6 @@ end;
 function TWebserverSiteManager.UnloadSite(Path: string): Boolean;
 var
   i: Integer;
-  p: Pointer;
-  s: string;
 begin
   result:=False;
   for i:=0 to Length(FHosts)-1 do
@@ -696,13 +709,11 @@ begin
     if FDefaultHost = FHosts[i] then
       FDefaultHost:=nil;
 
-    FHostsByName.First;
-    while FHostsByName.GetNext(s, p) do
-      if p = FHosts[i] then
-      begin
-        FHostsByName.DeleteKey(s);
-        FHostsByName.First;
-      end;
+    repeat
+      FHostToDelete:=FHosts[i];
+      FHostsByName.Iterate(HostNameDeleteIterator);
+    until Assigned(FHostToDelete);
+    FHostToDelete:=nil;
 
     FHosts[i].Free;
     FHosts[i]:=FHosts[Length(FHosts)-1];
@@ -731,6 +742,7 @@ end;
 
 function TWebserverSiteManager.GetSite(Hostname: string): TWebserverSite;
 begin
+  Writeln('Get ', HostName, ' ', FHostsByName.Count);
   result:=TWebserverSite(FHostsByName[Hostname]);
   if not Assigned(result) then
     result:=FDefaultHost;
