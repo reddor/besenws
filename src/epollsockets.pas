@@ -271,8 +271,6 @@ end;
 { TEPollSocket }
 
 procedure TEPollSocket.AddCallback;
-var
-  msg: ansistring;
 begin
   if not FParent.AddSocket(Self) then
   begin
