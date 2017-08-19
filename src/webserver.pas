@@ -158,6 +158,7 @@ type
   private
     FCS: TCriticalSection;
     FTestMode: Boolean;
+    FTicks: longword;
     FWorkerCount: Integer;
     FWorker: array of TWebserverWorkerThread;
     FSiteManager: TWebserverSiteManager;
@@ -178,6 +179,7 @@ type
     procedure FreeConnection(Connection: THTTPConnection);
     property SiteManager: TWebserverSiteManager read FSiteManager;
     property TestMode: Boolean read FTestMode;
+    property Ticks: longword read FTicks write FTicks;
   end;
 
 implementation
@@ -498,7 +500,7 @@ var
 
 begin
   fkeepalive:=False;
-
+  FIdletime:=FServer.Ticks;
   s := FHeader.header['Sec-WebSocket-Version'];
 
   Freply.header.add('Upgrade', 'WebSocket');
@@ -816,10 +818,11 @@ begin
   FContentLength:=-1;
   FGotHeader:=False;
 
-  FPingIdleTime:=15; // seconds until ping is sent
-  FMaxPongTime:=15; // seconds until connection is closed with no pong reply
+  FPingIdleTime:=15000; // milliseconds until ping is sent
+  FMaxPongTime:=15000; // milliseconds until connection is closed with no pong reply
   FInBuffer:='';
   FServer:=Server;
+  FIdletime:=FServer.Ticks;
 end;
 
 destructor THTTPConnection.Destroy;
@@ -834,7 +837,7 @@ procedure THTTPConnection.Cleanup;
 begin
   inherited;
   fkeepalive:=False;
-  FIdletime:=0;
+  FIdletime:=FServer.Ticks;
   target:='';
   FWSData:='';
   FIdent:='';
@@ -869,37 +872,34 @@ begin
   case FVersion of
     wvNone, wvUnknown:
     begin
-      inc(FIdletime);
-      if FIdletime>30000 div EpollWaitTime then
+      if longword(FServer.Ticks - FIdletime) > 30000 then
         Close;
     end;
     wvHixie76:
     begin
       begin
-        inc(FIdletime);
 {$IFDEF HIXIE76_PING}
         if FIdletime = FPingIdleTime then
           SendWS('PING '+IntToStr(DateTimeToTimeStamp (Now).time));
-        if FIdletime>=FPingIdleTime + FMaxPongTime then
+        if longword(FServer.Ticks - FIdletime) > FMaxPongTime then
           FWantclose:=True;
 {$ELSE}
-       if FIdletime>600 then
+       if longword(FServer.Ticks - FIdletime) > 60000 then
          Close;
 {$ENDIF}
       end;
     end;
     else
     begin
-      inc(FIdletime);
-      if FIdletime=FPingIdleTime then
+      if (longword(FServer.Ticks - FIdleTime) > FPingIdleTime) and (FLastPing = 0) then
       begin
-        if FLastPing = 0 then
-          FLastPing:=DateTimeToTimeStamp(Now).Time;
+        FLastPing:=DateTimeToTimeStamp(Now).Time;
         s:=IntToStr(FLastPing);
         SendRaw(CreateHeader(9, length(s))+s);
+        FIdleTime:=FServer.Ticks;
       end;
     end;
-    if FIdleTime>=FPingIdleTime + FMaxPongTime then
+    if longword(FServer.Ticks - FIdletime) > FMaxPongTime then
       Close;
   end;
   result:=Wantclose;
@@ -1238,7 +1238,7 @@ procedure THTTPConnection.ProcessData(const Buffer: Pointer;
 var
   i: Integer;
 begin
-  FIdletime:=0;
+  FIdletime:=FServer.Ticks;
   i:=Length(FInBuffer);
   Setlength(FInBuffer, i + BufferLength);
   Move(Buffer^, FInBuffer[i+1], BufferLength);
@@ -1318,12 +1318,14 @@ constructor TWebserver.Create(const BasePath: ansistring; IsTestMode: Boolean);
 var
   i: Integer;
 begin
+
   FTestMode:=IsTestMode;
   FCS:=TCriticalSection.Create;
 
   FSiteManager:=TWebserverSiteManager.Create(BasePath);
   fcurrthread:=0;
   FWorkerCount:=1;
+  FTicks:=0;
 
   for i:=0 to FWorkerCount-1 do
     AddWorkerThread(TWebserverWorkerThread.Create(Self));
@@ -1461,6 +1463,7 @@ begin
       dec(FCachedConnectionCount);
       c:=FCachedConnections[FCachedConnectionCount];
       FCachedConnections[FCachedConnectionCount]:=nil;
+      c.FIdletime:=FTicks;
       c.ReAssign(Sock);
     end else
       c:=nil;

@@ -587,6 +587,7 @@ end;
 
 procedure TWebserverManager.Process;
 begin
+  FServer.Ticks:=GetTickCount;
   Finstance.ProcessHandlers;
 end;
 

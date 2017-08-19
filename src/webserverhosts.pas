@@ -63,6 +63,7 @@ type
   TWebserverSite = class
   private
     FCS: TCriticalSection;
+    FScriptFileCache: TFileCache;
     FStorage: TJSONStore;
     FName, FPath: string;
     FParent: TWebserverSiteManager;
@@ -115,6 +116,7 @@ type
     function GetIndexPage(var target: string): PFileCacheItem;
     function IsExternalScript(url: string; Client: TEPollSocket): Boolean;
     property Files: TFileCache read FFileCache;
+    property Scripts: TFileCache read FScriptFileCache;
     property Path: string read FPath;
     property Name: string read FName;
     property Parent: TWebserverSiteManager read FParent;
@@ -213,7 +215,10 @@ begin
       s:=nil;
     FCS.Leave;
     if Assigned(s) then
-      s.Files.DoScan(s.Path+'web','/')
+    begin
+      s.Files.DoScan(s.Path+'web','/');
+      s.Scripts.DoScan(s.Path+'scripts', '/');
+    end
     else begin
       if not Done then
       begin
@@ -267,6 +272,7 @@ begin
   FStorage:=TJSONStore.Create;
   FForwards:=TFPStringHashTable.Create;
   FFileCache:=TFileCache.Create;
+  FScriptFileCache:=TFileCache.Create;
   FCustomHandlers:=TFPObjectHashTable.Create(False);
 
   FParent:=Parent;
@@ -294,6 +300,7 @@ begin
     WriteFile(FPath+'storage.json', p.toJSON2());
   end;
   FFileCache.Free;
+  FScriptFileCache.Free;
   FForwards.Free;
   FStorage.Free;
   FCustomHandlers.Iterate(ClearItem);
@@ -432,7 +439,6 @@ end;
 
 procedure TWebserverSite.AddHostAlias(HostName: string);
 begin
-  Writeln('Adding host ', HostName);
   FParent.FHostsByName.Add(HostName, Self);
 end;
 
@@ -742,7 +748,6 @@ end;
 
 function TWebserverSiteManager.GetSite(Hostname: string): TWebserverSite;
 begin
-  Writeln('Get ', HostName, ' ', FHostsByName.Count);
   result:=TWebserverSite(FHostsByName[Hostname]);
   if not Assigned(result) then
     result:=FDefaultHost;

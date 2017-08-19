@@ -170,11 +170,11 @@ constructor TBESENWebsocket.Create(aParent: TWebserver; ASite: TWebserverSite;
 begin
   FSite:=ASite;
   OnConnection:=AddConnection;
-  FFilename:=ASite.Path+AFile;
+  FFilename:=ASite.Path+'scripts/'+AFile;
   FInstance:=nil;
   FURL:=Url;
   FAutoUnload:=20000;
-  FFlushList:=TObjectList.Create;
+  FFlushList:=TObjectList.Create(False);
   inherited Create(aParent);
 end;
 

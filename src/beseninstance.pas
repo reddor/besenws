@@ -127,6 +127,8 @@ type
     property Thread: TThread read FThread;
   end;
 
+function SanitizePath(const Path: ansistring): ansistring;
+
 implementation
 
 uses
@@ -137,6 +139,47 @@ uses
   besenevents,
   besendb,
   logging;
+
+function SanitizePath(const Path: ansistring): ansistring;
+var
+  i, ld, sld: Integer;
+begin
+  if Length(Path) = 0 then
+    Exit;
+
+  result:=StringReplace(StringReplace(Path, '//', '/', [rfReplaceAll]), '/./', '/', [rfReplaceAll]);
+
+  while (Length(result)>0) and (result[1] = '.') do
+  begin
+    // remove trailing ./ in front of string
+    if Length(result) > 1 then
+      if result[2] = '/' then
+        Delete(result, 1, 2);
+    if Length(result) > 2 then
+      if (result[2] = '.') and (result[3] = '/') then
+        raise Exception.Create('Invalid path');
+  end;
+  ld:=-1;
+  sld:=0;
+  i:=1;
+  while i<Length(result)-2 do
+    if result[i] = '/' then
+    begin
+      sld:=ld;
+      ld:=i;
+      inc(i);
+    end else
+    if (ld = i-1) and (result[i] = '.') and (result[i+1] = '.') and (result[i+2] = '/') then
+    begin
+      if sld=-1 then
+        raise Exception.Create('Invalid path');
+      Delete(result, 1+sld, i+2-sld);         // bla/../../
+      i:=1;
+      ld:=-1;
+      sld:=0;
+    end else
+      inc(i);
+end;
 
 { TBESENSystemObject }
 
@@ -437,29 +480,68 @@ var
   s, data: ansistring;
   gzip: Boolean;
   oldfile: integer;
+  CurrentPath: ansistring;
+  executed: Boolean;
 begin
+  CurrentPath:=ExtractFilePath(GetFilename());
   resultValue:=BESENUndefinedValue;
   oldfile:=FilenameSet;
   for i:=0 to CountArguments-1 do
   begin
     gzip:=False;
     s:=BESENUTF16ToUTF8(ToStr(Arguments^[i]^));
-    if Pos('./', s)=1 then
-      Delete(s, 1, 1)
-    else if Pos('/', s)<>1 then
-      s:='/' + s;
-
-    SetFilename(s);
-    if Assigned(FSite) and (FSite.Files.GetFile(s, data, gzip)>0) then
+    if (Length(s)>0) and (s[1] = '/') then
+      s:=SanitizePath(s)
+    else
     begin
-      Execute(data);
+      s:=SanitizePath(CurrentPath + s);
+    end;
+    executed:=False;
+    dolog(llDebug, 'importScripts('+s+')');
+    if Assigned(FSite) then
+    begin
+      if Pos(FSite.Scripts.BaseDir, s)=1 then
+      begin
+        Delete(s, 1, Length(FSite.Scripts.BaseDir));
+        Setfilename(s);
+        try
+          executed:=True;
+          dolog(llDebug, 'Found in '+FSite.Name+' scripts');
+          if FSite.Scripts.GetFile(s, data, gzip)>0 then
+            Execute(data);
+        finally
+          FilenameSet:=oldFile;
+        end;
+      end;
     end else
-    if FManager.SharedScripts.GetFile(s, data, gzip)>0 then
     begin
-      Execute(data);
+      if FileExists(s) then
+      begin
+        SetFilename(s);
+        try
+          dolog(llDebug, 'global instance');
+          executed:=True;
+          Execute(BESENGetFileContent(s));
+        finally
+          FilenameSet:=oldFile;
+        end;
+      end;
+    end;
+
+    if (not Executed) and (Pos(FManager.SharedScripts.BaseDir, s)=1) then
+    begin
+      Delete(s, 1, Length(FSite.Scripts.BaseDir));
+      Setfilename(s);
+      try
+        dolog(llDebug, 'shared script folder');
+        executed:=True;
+        if FSite.Scripts.GetFile(s, data, gzip)>0 then
+          Execute(data);
+      finally
+        FilenameSet:=oldFile;
+      end;
     end;
   end;
-  FilenameSet:=oldfile;
 end;
 
 constructor TBESENInstance.Create(Manager: TWebserverSiteManager;

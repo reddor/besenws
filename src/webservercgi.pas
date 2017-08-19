@@ -89,6 +89,7 @@ begin
     FBacklog:=FBacklog + Data;
     if Pos(#13#10#13#10, FBacklog)>0 then
     begin
+      status:='';
       // parse header-entries passed by script
       i:=1; // end position of line
       j:=1; // start position of line
@@ -291,20 +292,6 @@ begin
   end;
   Delete(s, 1, i+1);
 
-  (*
-  while pos(#13#10, s)>0 do
-  begin
-    s2:=Copy(s, 1, pos(#13#10, s)-1);
-    delete(s, 1, Length(s2)+2);
-    if s2='' then
-      Break;
-    s3:=Copy(s2, Pos(': ', s2)+2, Length(s2));
-    Setlength(s2, Length(s2)-(Length(s3)+2));
-    if s2='Status' then
-      status:=s3
-    else
-      freply.header.Add(s2, s3);
-  end; *)
   FClient.Reply.header.Add('Content-Length', IntToStr(Length(s)));
   if FClient.Header.action = 'HEAD' then
     FClient.SendRaw(FClient.reply.build(status))
