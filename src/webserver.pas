@@ -1315,8 +1315,6 @@ begin
 end;
 
 constructor TWebserver.Create(const BasePath: ansistring; IsTestMode: Boolean);
-var
-  i: Integer;
 begin
 
   FTestMode:=IsTestMode;
@@ -1324,11 +1322,10 @@ begin
 
   FSiteManager:=TWebserverSiteManager.Create(BasePath);
   fcurrthread:=0;
-  FWorkerCount:=1;
+  FWorkerCount:=0;
   FTicks:=0;
 
-  for i:=0 to FWorkerCount-1 do
-    AddWorkerThread(TWebserverWorkerThread.Create(Self));
+  SetThreadCount(1);
 end;
 
 destructor TWebserver.Destroy;
@@ -1384,6 +1381,7 @@ begin
   end else
   if Count > FWorkerCount then
   begin
+    if FWorkerCount <> 0 then // surpress initial message
     dolog(llDebug, 'Increasing threads from '+IntToStr(FWorkerCount)+' to '+IntToStr(Count));
     Setlength(FWorker, Count);
     for i:=FWorkerCount to Count-1 do
