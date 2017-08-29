@@ -160,6 +160,7 @@ begin
       begin
         j:=Min(65535, Length(Data)-i);
         FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1+i], j);
+        Inc(i, j);
       end;
     end else
     FFastCGI.SendRequest(FCGI_STDIN, FId, @Data[1], Length(Data));
