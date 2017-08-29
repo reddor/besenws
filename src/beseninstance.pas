@@ -477,7 +477,7 @@ procedure TBESENInstance.NativeImportScripts(const ThisArgument: TBESENValue;
   var ResultValue: TBESENValue);
 var
   i: Integer;
-  s, data: ansistring;
+  filename, s, data: ansistring;
   gzip: Boolean;
   oldfile: integer;
   CurrentPath: ansistring;
@@ -489,26 +489,28 @@ begin
   for i:=0 to CountArguments-1 do
   begin
     gzip:=False;
-    s:=BESENUTF16ToUTF8(ToStr(Arguments^[i]^));
+    filename:=BESENUTF16ToUTF8(ToStr(Arguments^[i]^));
     if (Length(s)>0) and (s[1] = '/') then
-      s:=SanitizePath(s)
+      s:=SanitizePath(filename)
     else
     begin
-      s:=SanitizePath(CurrentPath + s);
+      s:=SanitizePath(CurrentPath + filename);
     end;
     executed:=False;
-    dolog(llDebug, 'importScripts('+s+')');
+    //dolog(llDebug, 'importScripts('+s+')');
     if Assigned(FSite) then
     begin
       if Pos(FSite.Scripts.BaseDir, s)=1 then
       begin
-        Delete(s, 1, Length(FSite.Scripts.BaseDir));
         Setfilename(s);
+        Delete(s, 1, Length(FSite.Scripts.BaseDir));
         try
-          executed:=True;
-          dolog(llDebug, 'Found in '+FSite.Name+' scripts');
           if FSite.Scripts.GetFile(s, data, gzip)>0 then
+          begin
+            executed:=True;
+            // dolog(llDebug, 'Found in '+FSite.Name+' scripts');
             Execute(data);
+          end;
         finally
           FilenameSet:=oldFile;
         end;
@@ -533,7 +535,7 @@ begin
       Delete(s, 1, Length(FSite.Scripts.BaseDir));
       Setfilename(s);
       try
-        dolog(llDebug, 'shared script folder');
+        // dolog(llDebug, 'shared script folder');
         executed:=True;
         if FSite.Scripts.GetFile(s, data, gzip)>0 then
           Execute(data);
