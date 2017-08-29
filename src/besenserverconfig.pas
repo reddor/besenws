@@ -447,7 +447,8 @@ begin
 
   if CountArguments<5 then
     Exit;
-  Listener.EnableSSL(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[2]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[3]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[4]^)));
+  if Assigned(Listener) then
+    Listener.EnableSSL(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[2]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[3]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[4]^)));
 end;
 
 procedure TBESENWebserverObject.removeListener(const ThisArgument: TBESENValue;
