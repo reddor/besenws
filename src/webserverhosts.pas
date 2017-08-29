@@ -287,6 +287,9 @@ begin
 
   AddIndexPage('index.htm');
   AddIndexPage('index.html');
+
+  Scripts.DoScan(FPath+'scripts', '/');
+
   Rescan;
 end;
 
