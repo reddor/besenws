@@ -304,6 +304,7 @@ var
   ClientSock: TSocket;
   FSock: TTCPBlockSocket;
   x: Integer;
+  AcceptError: Boolean;
 begin
   FSock:=TTCPBlockSocket.Create;
   with FSock do
@@ -315,6 +316,7 @@ begin
     bind(FIP, FPort);
     listen;
     x:=0;
+    AcceptError:=False;
     repeat
       try
       if canread(500) then
@@ -322,6 +324,7 @@ begin
         ClientSock:=accept;
         if (LastError = 0)and(ClientSock>=0) then
         begin
+          AcceptError:=False;
           x := fpfcntl(ClientSock, F_GETFL, 0);
           if x<0 then
           begin
@@ -337,7 +340,16 @@ begin
           end;
           FParent.Accept(ClientSock, FSSL, FSSLContext);
         end else
-          dolog(llWarning, FIP+':'+FPort+': Could not accept incoming connection');
+        begin
+          if not AcceptError then
+          begin
+            dolog(llWarning, FIP+':'+FPort+': Could not accept incoming connection!');
+            AcceptError:=True;
+          end;
+          { there is nothing we can do - sleep to avoid busyloop as canread()
+            will return instantly as long as there are unaccepted connections }
+          Sleep(50);
+        end;
       end;
       except
         on e: Exception do dolog(llError, e.Message);
