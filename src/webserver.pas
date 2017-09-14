@@ -590,7 +590,6 @@ begin
        Freply.header.Add('Sec-WebSocket-Protocol', FHeader.header['Sec-WebSocket-Protocol']);
 
     SendRaw(FReply.Build('101 Switching protocols'));
-    dolog(llDebug, GetPeerName+': 101 Switching protocols '+FHeader.url);
   end;
 end;
 
