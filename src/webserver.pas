@@ -863,6 +863,7 @@ begin
   FTag:=nil;
   FWSData:='';
   FInBuffer:='';
+  FLastPing:=0;
 end;
 
 procedure THTTPConnection.Dispose;
