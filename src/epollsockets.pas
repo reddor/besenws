@@ -647,12 +647,14 @@ begin
         Inc(FFreeQueuePos);
       end;
     end;
-    ThreadTick;
+
     for i:=0 to FFreeQueuePos-1 do
       if FFreeQueue[i] is TEPollSocket then
         RemoveSocket(TEPollSocket(FFreeQueue[i]))
       else
         FFreeQueue[i].Free;
+
+    ThreadTick;
   end;
 
   except
@@ -705,6 +707,10 @@ begin
     j:=FSocketCount-1;
     while j>=0 do
     begin
+      { observed: exception here when terminating - probably a race condition
+        that appears when socket-classes are free'd elsewhere but not removed
+        from FSockets array -  not a serious issue but should be investigated
+        nevertheless! }
       if (FSockets[j].CheckTimeout)or Terminated then
       begin
         RemoveSocket(FSockets[j]);
