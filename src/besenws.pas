@@ -204,6 +204,27 @@ begin
   end;
 end;
 
+procedure IncreaseRLimits;
+var
+  Limit: TRLimit;
+  i, OldLimit: Integer;
+begin
+  i:=FpGetRLimit(RLIMIT_NOFILE, @Limit);
+  if i=0 then
+  begin
+    OldLimit:=Limit.rlim_cur;
+    if Limit.rlim_max > Limit.rlim_cur then
+    begin
+      Limit.rlim_cur:=Limit.rlim_max;
+      i:=FpSetRLimit(RLIMIT_NOFILE, @Limit);
+      if i=0 then
+        dolog(llNotice, 'Increased RLIMIT_NOFILE from '+IntToStr(OldLimit)+' to '+IntToStr(Limit.rlim_max));
+    end;
+  end;
+  if i<>0 then
+    dolog(llWarning, 'Could not get/set RLIMIT_NOFILE');
+end;
+
 begin
   isdebug:=False;
   ConfigurationPath:=ExtractFilePath(ParamStr(0));
@@ -247,6 +268,8 @@ begin
       ForkToBackground;
     end else
       dolog(llNotice, 'Running in Debug Mode');
+
+    IncreaseRLimits;
 
     WritePid(fpGetPid);
 
