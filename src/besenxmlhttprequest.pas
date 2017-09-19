@@ -22,6 +22,7 @@ type
 
   TBESENXMLHttpRequest = class(TBESENNativeObject)
   private
+    FOnError: TBESENObjectFunction;
     FRequest: THTTPRequestThread;
     FOnReadyStateChange: TBESENObjectFunction;
     FReadyState: Longword;
@@ -30,6 +31,7 @@ type
     FStatus: longword;
     FStatusText: TBESENString;
     FTimeout: longword;
+    FProtected: Boolean;
     procedure RequestError(Sender: TObject; ErrorType: THTTPRequestError; const Message: ansistring);
     procedure RequestResponse(Sender: TObject; const ResponseCode, data: ansistring);
     function RequestForward(Sender: TObject; var newUrl: ansistring): Boolean;
@@ -39,6 +41,7 @@ type
     function RequestConnect(Sender: TObject; Host, Port: ansistring): Boolean;
   protected
     procedure DoFire(Func: TEPollCallbackProc);
+    procedure FireError;
     procedure FireReadyChange;
     procedure FireReadyChangeOpened;
     procedure FireReadyChangeHeadersReceived;
@@ -58,6 +61,7 @@ type
     procedure send(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     procedure setRequestHeader(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
     property onreadystatechange: TBESENObjectFunction read FOnReadyStateChange write FOnReadyStateChange;
+    property onerror: TBESENObjectFunction read FOnError write FOnError;
     property readyState: Longword read FReadyState;
     property response: TBESENString read FResponse;
     property responseText: TBESENString read FResponse;
@@ -100,9 +104,12 @@ begin
   FRequest.Start;
   if not Assigned(FParentThread) then
   begin
-
+    FProtected:=False;
   end else
+  begin
     TBESEN(Instance).GarbageCollector.Protect(Self);
+    FProtected:=True;
+  end;
 end;
 
 destructor TBESENXMLHttpRequest.Destroy;
@@ -126,7 +133,7 @@ procedure TBESENXMLHttpRequest.RequestError(Sender: TObject;
   ErrorType: THTTPRequestError; const Message: ansistring);
 begin
   FStatusText:=TBESENString(Message);
-  TBESEN(Instance).GarbageCollector.Unprotect(Self);
+  DoFire(FireError);
 end;
 
 procedure TBESENXMLHttpRequest.RequestResponse(Sender: TObject;
@@ -177,6 +184,26 @@ begin
     Func();
 end;
 
+procedure TBESENXMLHttpRequest.FireError;
+var
+  AResult: TBESENValue;
+begin
+  try
+    if Assigned(FOnError) then
+      FOnError.Call(BESENObjectValue(Self), nil, 0, AResult);
+  except
+    on e: Exception do
+    begin
+      TBESENInstance(Instance).OutputException(e, 'XMLHTTPRequest.onerror');
+    end;
+  end;
+  if FProtected then
+  begin
+    TBESEN(Instance).GarbageCollector.Unprotect(Self);
+    FProtected:=False;
+  end;
+end;
+
 procedure TBESENXMLHttpRequest.FireReadyChange;
 var
   AResult: TBESENValue;
@@ -214,7 +241,11 @@ procedure TBESENXMLHttpRequest.FireReadyChangeDone;
 begin
   FReadyState:=4;
   FireReadyChange;
-  TBESEN(Instance).GarbageCollector.Unprotect(Self);
+  if FProtected then
+  begin
+    TBESEN(Instance).GarbageCollector.Unprotect(Self);
+    FProtected:=False;
+  end;
 end;
 
 procedure TBESENXMLHttpRequest.InitializeObject;
