@@ -341,15 +341,11 @@ begin
       err:=fpgeterrno;
       case err of
         ESysEWOULDBLOCK: result:=True;
-        ESysECONNRESET:
-        begin
-          //dolog(llDebug, GetPeerName+': Connection reset');
-          result:=False;
-          FWantClose:=True;
-        end;
+        ESysEPIPE,
+        ESysECONNRESET,
+        ESysENOTCONN,
         ESysETIMEDOUT:
         begin
-          //dolog(llDebug, GetPeerName+': Connection timeout');
           result:=False;
           FWantClose:=True;
         end;
@@ -378,7 +374,7 @@ end;
 
 function TEPollSocket.FlushSendbuffer: Boolean;
 var
-  i: Integer;
+  i, err: Integer;
   event: epoll_event;
 begin
   result:=False;
@@ -404,14 +400,39 @@ begin
     end else
     begin
       i:=fpsend(FSocket, @FOutbuffer[1], Length(FOutbuffer), MSG_DONTWAIT or MSG_NOSIGNAL);
+      if i=0 then
+      begin
+        // I don't think that should ever happen according to manpages
+        dolog(llDebug, GetPeerName+': fpsend Could not send anything, #'+IntTostr(fpgeterrno)+' '+IntToStr(i));
+      end else
       if i<0 then
       begin
-        dolog(llError, GetPeerName+': Error in fpsend #'+IntTostr(fpgeterrno));
-        FWantclose:=True;
-      end
-      else if i=0 then
-        dolog(llDebug, GetPeerName+': fpsend Could not send anything, #'+IntTostr(fpgeterrno))
-      else
+        err:=fpgeterrno;
+        case err of
+          //ESysEWOULDBLOCK: ; // do nothing
+          ESysEPIPE,
+          ESysECONNRESET,
+          ESysENOTCONN,
+          ESysETIMEDOUT:
+          begin
+            // connection is broken, close but don't be annoying about it
+            i:=0;
+            FWantClose:=True;
+          end;
+          ESysEAGAIN:
+          begin
+            i:=0;
+            result:=True;
+          end;
+          // I don't think that should ever happen according to manpages
+          else begin
+            // unknown error, log
+            dolog(llError, GetPeerName+': Error in fpsend #'+IntTostr(err)+' '+IntToStr(i));
+            FWantclose:=True;
+            i:=-1;
+          end;
+        end;
+      end else
         result := True;
     end;
 
