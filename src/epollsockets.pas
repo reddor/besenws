@@ -64,6 +64,7 @@ type
     FWantSSL: Boolean;
     { internal callback function that adds socket in parent thread }
     procedure AddCallback;
+    function GetClosed: Boolean;
   protected
     { process incoming data - called by worker thread, has to be overridden }
     procedure ProcessData(const Data: ansistring); overload; virtual;
@@ -111,6 +112,8 @@ type
     procedure StartSSL;
     { cleans up ssl - you probably don't want to call this manually }
     procedure StopSSL;
+
+    property Closed: Boolean read GetClosed;
     { actual socket handle }
     property Socket: TSocket read FSocket;
     { Parent Thread }
@@ -279,6 +282,11 @@ begin
     FWantclose:=True;
     Dispose;
   end;
+end;
+
+function TEPollSocket.GetClosed: Boolean;
+begin
+  result:=(FSocket = INVALID_SOCKET) or WantClose;
 end;
 
 procedure TEPollSocket.ProcessData(const Data: ansistring);
