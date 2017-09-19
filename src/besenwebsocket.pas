@@ -91,7 +91,7 @@ type
   TBESENWebsocket = class;
   { TBESENWebsocketHandler }
 
-  { global "handler" object for websocket scripts }
+  { global handler object for websocket scripts }
   TBESENWebsocketHandler = class(TBESENNativeObject)
   private
     FOnConnect: TBESENObjectFunction;
@@ -125,7 +125,7 @@ type
     FInstance: TBESENInstance;
     FHandler: TBESENWebsocketHandler;
     FClients: array of TBESENWebsocketClient;
-    FIdleTicks: Integer;
+    FIdleTicks,FGCTicks: Integer;
     FUrl: TBESENString;
     FFlushList: TObjectList;
   protected
@@ -302,9 +302,7 @@ begin
       FClients[i]:=FClients[Length(FClients)-1];
       Setlength(FClients, Length(FClients)-1);
       Break;
-   end;
-
-  FInstance.GarbageCollector.Collect;
+    end;
 end;
 
 procedure TBESENWebsocket.Initialize;
@@ -392,7 +390,12 @@ begin
     end;
 
     FInstance.ProcessHandlers;
-    FInstance.GarbageCollector.Collect;
+    if longword(TWebserver(Parent).Ticks - FGCTicks)>=1000 then
+    begin
+      FInstance.GarbageCollector.Collect;
+      FGCTicks:=TWebserver(Parent).Ticks;
+    end;
+
     if (Length(FClients)>0) then
       FIdleTicks:=0
     else begin
