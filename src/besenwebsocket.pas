@@ -50,6 +50,7 @@ type
     FReply: TBESENString;
     FConnection: THTTPConnection;
     FReturnType: TBESENString;
+    FRefCounter: Integer;
     function GetHostname: string;
     function GetLag: Integer;
     function GetParameter: TBESENString;
@@ -59,8 +60,11 @@ type
     procedure SetPingTime(AValue: Integer);
     procedure SetPongTime(AValue: Integer);
   protected
-   procedure InitializeObject; override;
-   procedure FinalizeObject; override;
+    procedure InitializeObject; override;
+    procedure FinalizeObject; override;
+  public
+    procedure AddRefCount;
+    procedure DecRefCount;
   published
     { send(data) - sends data to client }
     procedure send(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
@@ -115,6 +119,28 @@ type
     property unloadTimeout: Integer read GetUnloadTimeout write SetUnloadTimeout;
   end;
 
+  { TBESENWebsocketBulkSender }
+  { bulk message sending object - sends the same message to multiple websocket clients,
+    performs slightly better than implementing the same thing in ECMAScript }
+  TBESENWebsocketBulkSender = class(TBESENNativeObject)
+  private
+    FClients: array of TBESENWebsocketClient;
+    function GetLength: Integer;
+  protected
+    procedure InitializeObject; override;
+    procedure FinalizeObject; override;
+    function RemoveClient(Client: TBESENWebsocketClient): Boolean;
+  published
+    { add(client) - add a websocket client into bulk send list }
+    procedure add(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { remove(client) - remove client from bulk send list }
+    procedure remove(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { send(data - send data to all clients in bulk send list}
+    procedure send(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+    { amount of clients in list }
+    property count: Integer read GetLength;
+  end;
+
   { TBESENWebsocket }
 
   TBESENWebsocket = class(TEPollWorkerThread)
@@ -150,6 +176,116 @@ implementation
 uses
   besenserverconfig,
   logging;
+
+{ TBESENWebsocketBulkSender }
+
+function TBESENWebsocketBulkSender.GetLength: Integer;
+begin
+  result:=Length(FClients);
+end;
+
+procedure TBESENWebsocketBulkSender.InitializeObject;
+begin
+  inherited InitializeObject;
+end;
+
+procedure TBESENWebsocketBulkSender.FinalizeObject;
+var
+  i: Integer;
+begin
+  for i:=0 to Length(FClients)-1 do
+    FClients[i].DecRefCount;
+  Setlength(FClients, 0);
+  inherited FinalizeObject;
+end;
+
+function TBESENWebsocketBulkSender.RemoveClient(Client: TBESENWebsocketClient
+  ): Boolean;
+var
+  i: Integer;
+begin
+  result:=False;
+  for i:=0 to Length(FClients)-1 do
+  begin
+    if FClients[i] = Client then
+    begin
+      FClients[i]:=FClients[Length(FClients)-1];
+      Setlength(FClients, Length(FClients)-1);
+      result:=True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TBESENWebsocketBulkSender.add(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+var
+  o: TBESENObject;
+  i: Integer;
+begin
+  ResultValue:=BESENBooleanValue(False);
+  if CountArguments<1 then
+    Exit;
+  o:=TBESEN(Instance).ToObj(Arguments^[0]^);
+  if Assigned(o) and (o is TBESENWebsocketClient) then
+  begin
+    if not TBESENWebsocketClient(o).FIsRequest then
+    begin
+      i:=Length(FClients);
+      Setlength(FClients, i+1);
+      FClients[i]:=TBESENWebsocketClient(o);
+      ResultValue:=BESENBooleanValue(True);
+    end;
+  end else
+    raise EBESENError.Create('Websocket client object expected');
+end;
+
+procedure TBESENWebsocketBulkSender.remove(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+var
+  o: TBESENObject;
+begin
+  ResultValue:=BESENBooleanValue(False);
+  if CountArguments<1 then
+    Exit;
+  o:=TBESEN(Instance).ToObj(Arguments^[0]^);
+  if Assigned(o) and (o is TBESENWebsocketClient) then
+  begin
+    ResultValue:=BESENBooleanValue(RemoveClient(TBESENWebsocketClient(o)));
+  end else
+    raise EBESENError.Create('Websocket client object expected');
+end;
+
+procedure TBESENWebsocketBulkSender.send(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+var
+  i: Integer;
+  data: ansistring;
+begin
+  resultValue:=BESENBooleanValue(False);
+  if CountArguments<1 then
+    Exit;
+
+  data:=BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^));
+
+  for i:=0 to Length(FClients)-1 do
+  with FClients[i] do
+  if (Assigned(FConnection)) then
+  begin
+    if FConnection.Closed then
+    begin
+      RemoveClient(FClients[i]);
+    end else
+    begin
+      FConnection.SendWS(Data, not FConnection.IsSSL);
+      if FConnection.IsSSL then
+       TBESENWebsocket(FConnection.Parent).AddConnectionToFlush(FConnection);
+    end;
+  end;
+end;
 
 { TBESENWebsocketHandler }
 
@@ -207,6 +343,7 @@ begin
   FInstance.GarbageCollector.Protect(TBESENObject(FHandler));
 
   FInstance.ObjectGlobal.put('handler', BESENObjectValue(FHandler), false);
+  FInstance.RegisterNativeObject('BulkSender', TBESENWebsocketBulkSender);
   FInstance.SetFilename(FFilename);
   try
     FInstance.Execute(BESENGetFileContent(FFilename));
@@ -290,7 +427,7 @@ begin
         FInstance.OutputException(e, 'handler.onDisconnect');
     end;
   end;
-  FInstance.GarbageCollector.UnProtect(TBESENObject(client));
+  client.DecRefCount;
 
   i:=FFlushList.IndexOf(Sender);
   if i>=0 then
@@ -340,9 +477,9 @@ begin
 
   aclient:=TBESENWebsocketClient.Create(FInstance);
   FInstance.GarbageCollector.Add(TBESENObject(aclient));
-  FInstance.GarbageCollector.Protect(TBESENObject(aclient));
 
   aclient.InitializeObject;
+  aclient.AddRefCount;
   aclient.FConnection:=THTTPConnection(Client);
   aclient.FConnection.OnWebsocketData:=ClientData;
   aclient.FConnection.OnDisconnect:=ClientDisconnect;
@@ -417,12 +554,33 @@ begin
   FIsRequest:=False;
   FMimeType:='text/html';
   FReturnType:='200 OK';
+  FRefCounter:=0;
   inherited; 
 end;
 
 procedure TBESENWebsocketClient.FinalizeObject;
 begin
   inherited;
+end;
+
+procedure TBESENWebsocketClient.AddRefCount;
+begin
+  if FRefCounter = 0 then
+  begin
+    TBESEN(Instance).GarbageCollector.Protect(Self);
+  end;
+  Inc(FRefCounter);
+end;
+
+procedure TBESENWebsocketClient.DecRefCount;
+begin
+  Dec(FRefCounter);
+  if FRefCounter = 0 then
+  begin
+    TBESEN(Instance).GarbageCollector.Unprotect(Self);
+  end else
+  if FRefCounter < 0 then
+    dolog(llWarning, 'Internal Error: Reference Counter in TBESENWebsocketClient is broken');
 end;
 
 procedure TBESENWebsocketClient.send(const ThisArgument: TBESENValue;
