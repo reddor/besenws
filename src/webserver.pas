@@ -280,13 +280,20 @@ begin
   if Length < 65536 then
   begin
     result[2] := #126;
-    result[3] := AnsiChar(Length div $100);
-    result[4] := AnsiChar(Length mod $100);
+    result[3] := AnsiChar(Length shr 8);
+    result[4] := AnsiChar(Length);
   end else
   begin
     Setlength(result, 10);
     result[2] := #127;
-    PInt64(@result[3])^:=Length;
+    result[3]:=AnsiChar(Length shr 56);
+    result[4]:=AnsiChar(Length shr 48);
+    result[5]:=AnsiChar(Length shr 40);
+    result[6]:=AnsiChar(Length shr 32);
+    result[7]:=AnsiChar(Length shr 24);
+    result[8]:=AnsiChar(Length shr 16);
+    result[9]:=AnsiChar(Length shr 8);
+    result[10]:=AnsiChar(Length);
   end;
 end;
 
