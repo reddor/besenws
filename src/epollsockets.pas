@@ -596,9 +596,8 @@ var
   Callback: TEPollCallbackProc;
   event: epoll_event;
 begin
-  epollfd:=0;
-  epollfd := epoll_create(MaxConnectionsPerThread);
-
+  FillChar(event, SizeOf(Event), #0);
+  epollfd:=epoll_create(MaxConnectionsPerThread);
   // add callback pipe
   event.Events:=EPOLLIN;
   event.Data.fd:=FPipeOutput;
