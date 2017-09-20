@@ -261,18 +261,14 @@ var
   Rec: FCGI_Header;
   Foo: ansistring;
 begin
+  FillChar(Rec, SizeOf(Rec), #0);
   Rec.reqtype:=ReqType;
   Rec.version:=1;
   Rec.paddingLength:=0; //7 - ((SizeOf(Rec) + Length) and 7);
   Rec.requestID:=SwapWord(Id);
   Rec.contentLength:=SwapWord(Length);
-  Setlength(Foo, SizeOf(Rec) + Length + Rec.paddingLength);
-  Move(Rec, Foo[1], SizeOf(rec));
-  if Length>0 then
-    Move(Data^, foo[SizeOf(Rec)+1], Length);
-  Send(@foo[1], system.Length(foo));
-  //if Length>0 then
-  // Send(Data, Length);
+  Send(@Rec, SizeOf(Rec));
+  Send(Data, Length);
 end;
 
 constructor TAbstractFastCGIBridge.Create(AParent: TEpollWorkerThread; AHandle: THandle
@@ -292,6 +288,7 @@ function TAbstractFastCGIBridge.BeginRequest: Word;
 var
   Packet: FCGI_BeginRequestRecord;
 begin
+  FillChar(Packet, SizeOf(Packet), #0);
   result:=FCurrentID;
   Inc(FCurrentId);
   Packet.header.version:=1;
