@@ -588,7 +588,7 @@ end;
 
 procedure TWebserverManager.Process;
 begin
-  FServer.Ticks:=GetTickCount;
+  FServer.Ticks:=longword(GetTickCount64);
   Finstance.ProcessHandlers;
 end;
 
