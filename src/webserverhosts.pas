@@ -590,8 +590,10 @@ end;
 
 function TWebserverSite.IsExternalScript(url: string; Client: TEPollSocket
   ): Boolean;
+{$IFDEF CGISUPPORT}
 var
   i, j: Integer;
+{$ENDIF}
 begin
   result:=False;
   {$IFDEF CGISUPPORT}
