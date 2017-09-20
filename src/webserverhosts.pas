@@ -47,6 +47,7 @@ type
   TFileCachingThread = class(TThread)
   private
     FCS: TCriticalSection;
+    FCurrent: TWebserverSite;
     FItems: array of TWebserverSite;
   protected
     procedure Execute; override;
@@ -198,7 +199,6 @@ end;
 
 procedure TFileCachingThread.Execute;
 var
-  s: TWebserverSite;
   Done: Boolean;
 begin
   Done:=True;
@@ -208,16 +208,19 @@ begin
     FCS.Enter;
     if Length(FItems)>0 then
     begin
-      s:=FItems[Length(FItems)-1];
+      FCurrent:=FItems[Length(FItems)-1];
       Setlength(Fitems, Length(FItems)-1);
       Done:=False;
     end else
-      s:=nil;
+      FCurrent:=nil;
     FCS.Leave;
-    if Assigned(s) then
+    if Assigned(FCurrent) then
     begin
-      s.Files.DoScan(s.Path+'web','/');
-      s.Scripts.DoScan(s.Path+'scripts', '/');
+      FCurrent.Files.DoScan(FCurrent.Path+'web','/');
+      FCurrent.Scripts.DoScan(FCurrent.Path+'scripts', '/');
+      FCS.Enter;
+      FCurrent:=nil;
+      FCS.Leave;
     end
     else begin
       if not Done then
@@ -240,6 +243,14 @@ end;
 
 destructor TFileCachingThread.Destroy;
 begin
+  FCS.Enter;
+  if Assigned(FCurrent) then
+  begin
+    FCurrent.Files.Abort;
+    FCurrent.Scripts.Abort;
+  end;
+  FCS.Leave;
+
   Terminate;
   WaitFor;
   inherited Destroy;

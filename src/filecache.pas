@@ -57,6 +57,7 @@ type
     FFiles: THashtable;
     FTicks: Integer;
     FBaseDir: ansistring;
+    FAbort: Boolean;
     function AddItem(Name: ansistring): PFileCacheItem;
     procedure ClearItem(Item: Pointer);
     procedure ReadFile(p: PFileCacheItem; Filename: string); overload;
@@ -69,6 +70,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure ProcessTick;
+    procedure Abort;
     procedure DoScan(const Dir, BaseDir: ansistring);
     procedure AddSymlink(source, dest: ansistring);
     function FindPathUrl(var target, PathUrl: ansistring): PFileCacheItem;
@@ -293,9 +295,15 @@ begin
   inc(FTicks);
 end;
 
+procedure TFileCache.Abort;
+begin
+  FAbort:=True;
+end;
+
 procedure TFileCache.DoScan(const Dir, BaseDir: ansistring);
 begin
   //FCS.Enter;
+  FAbort:=False;
   try
     FBaseDir:=Dir;
     Scan(Dir, BaseDir);
@@ -312,7 +320,7 @@ var
   fullpath, fakepath, basePath: ansistring;
 begin
   i:=FindFirst(dir+'/*', faAnyFile, sr);
-  while i=0 do
+  while (i=0) and (not FAbort) do
   begin
     fullpath:=dir+'/'+sr.name;
     fakepath:=basedir+sr.Name;
