@@ -284,7 +284,8 @@ begin
       if FConnection.IsSSL then
        TBESENWebsocket(FConnection.Parent).AddConnectionToFlush(FConnection);
     end;
-  end;
+  end else
+    RemoveClient(FClients[i]);
 end;
 
 { TBESENWebsocketHandler }
@@ -365,8 +366,11 @@ begin
   while Length(FClients)>0 do
   begin
     conn:=FClients[0].FConnection;
-    ClientDisconnect(conn);
-    TWebserver(Parent).FreeConnection(conn);
+    if Assigned(conn) then
+    begin
+      ClientDisconnect(conn);
+      TWebserver(Parent).FreeConnection(conn);
+    end;
   end;
 
   FInstance.GarbageCollector.UnProtect(TBESENObject(FHandler));
@@ -383,6 +387,14 @@ var
   v,v2, AResult: TBESENValue;
 begin
   client:=GetClient(Sender);
+
+  if not Assigned(client) then
+  begin
+    dolog(llDebug, 'Got websocket client-data with no associated client');
+    Sender.Close;
+    Exit;
+  end;
+
   a[0]:=@v;
   a[1]:=@v2;
 
@@ -411,6 +423,7 @@ begin
     Exit;
 
   client:=GetClient(THTTPConnection(Sender));
+
   if not Assigned(client) then
     Exit;
 
@@ -440,6 +453,8 @@ begin
       Setlength(FClients, Length(FClients)-1);
       Break;
     end;
+
+  client.FConnection:=nil;
 end;
 
 procedure TBESENWebsocket.Initialize;
@@ -453,6 +468,9 @@ var
   i: Integer;
 begin
   result:=nil;
+  if not Assigned(AClient) then
+    Exit;
+
   for i:=0 to Length(FClients)-1 do
     if FClients[i].FConnection = AClient then
     begin
@@ -469,6 +487,9 @@ var
   AResult: TBESENValue;
   aclient: TBESENWebsocketClient;
 begin
+  if not Assigned(Client) then
+    Exit;
+
   if not (Client is THTTPConnection) then
     Exit;
 
@@ -669,12 +690,18 @@ end;
 
 function TBESENWebsocketClient.GetPingTime: Integer;
 begin
-  result:=FConnection.WebsocketPingIdleTime;
+  if Assigned(FConnection) then
+    result:=FConnection.WebsocketPingIdleTime
+  else
+    result:=-1;
 end;
 
 function TBESENWebsocketClient.GetPongTime: Integer;
 begin
-  result:=FConnection.WebsocketMaxPongTime;
+  if Assigned(FConnection) then
+    result:=FConnection.WebsocketMaxPongTime
+  else
+    result:=-1;
 end;
 
 function TBESENWebsocketClient.GetPostData: string;
@@ -684,6 +711,9 @@ end;
 
 procedure TBESENWebsocketClient.SetPingTime(AValue: Integer);
 begin
+  if not Assigned(FConnection) then
+    Exit;
+
   if AValue>1 then
     FConnection.WebsocketPingIdleTime:=AValue
   else
@@ -692,6 +722,9 @@ end;
 
 procedure TBESENWebsocketClient.SetPongTime(AValue: Integer);
 begin
+  if not Assigned(FConnection) then
+    Exit;
+
   if AValue>1 then
     FConnection.WebsocketMaxPongTime:=AValue
   else
