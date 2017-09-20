@@ -12,4 +12,4 @@
   has no support for pings inside the protocol. }
 
 
-{.$DEFINE CGISUPPORT}
+{$DEFINE CGISUPPORT}
