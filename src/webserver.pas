@@ -166,6 +166,7 @@ type
     FCachedConnections: array[0..ConnectionCacheSize] of THTTPConnection;
     FListener: array of TWebserverListener;
     fcurrthread: Integer;
+    FTotalConnections: Int64;
     FTotalRequests: Int64;
   protected
     procedure AddWorkerThread(AThread: TWebserverWorkerThread);
@@ -406,6 +407,7 @@ begin
   try
     if FGotHeader then
     begin
+      InterLockedIncrement64(FServer.FTotalRequests);
       FGotHeader:=False;
       // FContentLength:=-1;
 
@@ -1357,7 +1359,7 @@ begin
 
   SetThreadCount(0);
 
-  dolog(llNotice, 'Total requests served: '+IntToStr(FTotalRequests));
+  dolog(llNotice, 'Total connections accepted: '+IntToStr(FTotalConnections)+', total requests processed: '+IntToStr(FTotalRequests));
   FSiteManager.Destroy;
 
   for i:=0 to FCachedConnectionCount-1 do
@@ -1392,7 +1394,7 @@ begin
     for i:=Count to FWorkerCount-1 do
     begin
       FWorker[i].WaitFor;
-      Inc(FTotalRequests, FWorker[i].TotalCount);
+      Inc(FTotalConnections, FWorker[i].TotalCount);
       FWorker[i].Free;
     end;
     Setlength(FWorker, Count);
