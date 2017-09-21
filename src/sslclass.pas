@@ -14,6 +14,8 @@ type
 
   { TAbstractSSLConnection }
 
+  { TAbstractSSLSession }
+
   TAbstractSSLSession = class
   private
     FParent: TAbstractSSLContext;
@@ -22,6 +24,7 @@ type
     function Read(Buffer: Pointer; BufferSize: Integer): Integer; virtual; abstract;
     function Write(Buffer: Pointer; BufferSize: Integer): Integer; virtual; abstract;
     function WantWrite: Boolean; virtual; abstract;
+    function WantClose: Boolean; virtual; abstract;
 
     property Parent: TAbstractSSLContext read FParent;
   end;
@@ -29,7 +32,7 @@ type
   TAbstractSSLContext = class
   public
     function Enable(const PrivateKeyFile, CertificateFile, CertPassword: ansistring): Boolean; virtual; abstract;
-    function StartSession(Socket: TSocket): TAbstractSSLSession; virtual; abstract;
+    function StartSession(Socket: TSocket; LogPrefix: ansistring): TAbstractSSLSession; virtual; abstract;
   end;
 
 implementation

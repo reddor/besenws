@@ -18,13 +18,15 @@ type
   TOpenSSLSession = class(TAbstractSSLSession)
   private
     FSSL: PSSL;
-    FSSLWantWrite: Boolean;
+    FLogPrefix: ansistring;
+    FSSLWantWrite,FSSLWantClose: Boolean;
     procedure CheckSSLError(ErrNo: Longword);
   public
-    constructor Create(AParent: TAbstractSSLContext; ASSL: PSSL);
+    constructor Create(AParent: TAbstractSSLContext; ASSL: PSSL; ALogPrefix: ansistring);
     function Read(Buffer: Pointer; BufferSize: Integer): Integer; override;
     function Write(Buffer: Pointer; BufferSize: Integer): Integer; override;
     function WantWrite: Boolean; override;
+    function WantClose: Boolean; override;
   end;
 
   { TOpenSSLContext }
@@ -35,7 +37,8 @@ type
     FSSLMethod: PSSL_METHOD;
   public
     function Enable(const PrivateKeyFile, CertificateFile, CertPassword: ansistring): Boolean; override;
-    function StartSession(Socket: TSocket): TOpenSSLSession; override;
+    function SetCipherList(CipherList: ansistring): Boolean;
+    function StartSession(Socket: TSocket; LogPrefix: ansistring): TOpenSSLSession; override;
   end;
 
 implementation
@@ -55,18 +58,17 @@ begin
   result:=Length(s);
 end;
 
-function CheckOpenSSLError(fssl: PSSL; ErrNo: Longword): integer;
+function CheckOpenSSLError(fssl: PSSL; ErrNo: Longword; LogPrefix: ansistring = ''): integer;
 var
   s: string;
 begin
   result:=SslGetError(fssl, ErrNo);
   case result of
-    SSL_ERROR_NONE: dolog(llError, ': SSL Error - SSL_ERROR_NONE');
+    SSL_ERROR_NONE: dolog(llError, LogPrefix + 'SSL Error - SSL_ERROR_NONE');
     SSL_ERROR_SSL: begin
       setlength(s, 256);
       ErrErrorString(ErrGetError, s, Length(s));
-      dolog(llError, ': SSL Error - '+s);
-      //FWantclose:=True;
+      dolog(llError, LogPrefix + 'SSL Error - '+s);
     end;
     SSL_ERROR_SYSCALL:
     begin
@@ -74,31 +76,27 @@ begin
       begin
         setlength(s, 256);
         ErrErrorString(ErrGetError, s, Length(s));
-        dolog(llError, ': SSL Error - SSL_ERROR_SYSCALL -'+s);
+        dolog(llError, LogPrefix + 'SSL Error - SSL_ERROR_SYSCALL -'+s);
       end;
-      //FWantclose:=True;
     end;
-    SSL_ERROR_WANT_CONNECT: dolog(llError, ': SSL Error - SSL_ERROR_WANT_CONNECT');
+    SSL_ERROR_WANT_CONNECT: dolog(llError, LogPrefix + ': SSL Error - SSL_ERROR_WANT_CONNECT');
     SSL_ERROR_WANT_READ:
     begin
       // this error can be savely ignored - data will be read automatically via epoll
     end;
     SSL_ERROR_WANT_WRITE:
     begin
-      // openssl wants a
-      // FSSLWantWrite:=True;
-      //FlushSendbuffer;
+
     end;
-    SSL_ERROR_WANT_X509_LOOKUP: dolog(llError, ': SSL Read Error - SSL_ERROR_WANT_X509_LOOKUP');
+    SSL_ERROR_WANT_X509_LOOKUP: dolog(llError, LogPrefix + ': SSL Read Error - SSL_ERROR_WANT_X509_LOOKUP');
     SSL_ERROR_ZERO_RETURN:
     begin
-      dolog(llError, ': SSL Error - SSL_ERROR_ZERO_RETURN');
-      //FWantclose:=True;
+      dolog(llError, LogPrefix + 'SSL Error - SSL_ERROR_ZERO_RETURN');
     end;
 
-    SSL_ERROR_WANT_ACCEPT: dolog(llError, ': SSL Read Error - SSL_ERROR_WANT_ACCEPT');
+    SSL_ERROR_WANT_ACCEPT: dolog(llError, LogPrefix + ': SSL Read Error - SSL_ERROR_WANT_ACCEPT');
     else
-      dolog(llError, ': SSL Read Error - Other #'+IntToStr(result));
+      dolog(llError, 'SSL Read Error - Other #'+IntToStr(result));
   end;
 end;
 
@@ -107,14 +105,24 @@ end;
 
 procedure TOpenSSLSession.CheckSSLError(ErrNo: Longword);
 begin
-  if CheckOpenSSLError(FSSL, ErrNo) = SSL_ERROR_WANT_WRITE then
-    FSSLWantWrite:=True;
+  case CheckOpenSSLError(FSSL, ErrNo) of
+    SSL_ERROR_WANT_WRITE:
+      FSSLWantWrite:=True;
+    SSL_ERROR_SSL,
+    SSL_ERROR_SYSCALL,
+    SSL_ERROR_ZERO_RETURN:
+      FSSLWantClose:=True;
+  end;
 end;
 
-constructor TOpenSSLSession.Create(AParent: TAbstractSSLContext; ASSL: PSSL);
+constructor TOpenSSLSession.Create(AParent: TAbstractSSLContext; ASSL: PSSL;
+  ALogPrefix: ansistring);
 begin
   inherited Create(AParent);
   FSSL := ASSL;
+  FSSLWantClose:=False;
+  FSSLWantWrite:=False;
+  FLogPrefix:=ALogPrefix;
 end;
 
 function TOpenSSLSession.Read(Buffer: Pointer; BufferSize: Integer): Integer;
@@ -143,6 +151,11 @@ begin
   result:=FSSLWantWrite;
 end;
 
+function TOpenSSLSession.WantClose: Boolean;
+begin
+  result:=FSSLWantClose;
+end;
+
 { TOpenSSLContext }
 
 function TOpenSSLContext.Enable(const PrivateKeyFile, CertificateFile,
@@ -155,6 +168,7 @@ begin
   FSSLMethod:=SslMethodTLSV1;
   FSSLContext:=SslCtxNew(FSSLMethod);
   FSSLCertPass := CertPassword;
+
 
   SslCtxSetDefaultPasswdCbUserdata(FSSLContext, self);
   SslCtxSetDefaultPasswdCb(FSSLContext, @passwordcallback);
@@ -177,7 +191,13 @@ begin
     result:=True;
 end;
 
-function TOpenSSLContext.StartSession(Socket: TSocket): TOpenSSLSession;
+function TOpenSSLContext.SetCipherList(CipherList: ansistring): Boolean;
+begin
+  result:=SslCtxSetCipherList(FSSLContext, CipherList) = 1;
+end;
+
+function TOpenSSLContext.StartSession(Socket: TSocket; LogPrefix: ansistring
+  ): TOpenSSLSession;
 var
   ssl: PSSL;
   i: INteger;
@@ -201,9 +221,9 @@ begin
       end;
     end;
     if Assigned(ssl) then
-      result:=TOpenSSLSession.Create(Self, ssl);
+      result:=TOpenSSLSession.Create(Self, ssl, LogPrefix);
   end else
-    dolog(llError, 'SSL_new() failed!');
+    dolog(llError, LogPrefix + 'SSL_new() failed!');
 end;
 
 initialization

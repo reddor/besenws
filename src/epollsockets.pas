@@ -332,6 +332,8 @@ begin
     bufferRead:=FSSL.Read(Buffer, BufferLength);
     if bufferRead<=0 then
     begin
+      if FSSL.WantClose then
+       Close;
       result:=False;
     end else
     begin
@@ -402,6 +404,8 @@ begin
 
       if i<=0 then
       begin
+        if FSSL.WantClose then
+         Close;
         i:=0;
       end else
         result:=True;
@@ -534,7 +538,7 @@ procedure TEPollSocket.StartSSL;
 begin
   if FIsSSL then
     Exit;
-  FSSL:=FSSLContext.StartSession(FSocket);
+  FSSL:=FSSLContext.StartSession(FSocket, GetPeerName+': ');
   FIsSSL:=Assigned(fssl);
 end;
 
