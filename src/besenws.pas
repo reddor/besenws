@@ -26,6 +26,7 @@ uses
   {$ENDIF}
   {$IFDEF OPENSSL_SUPPORT}
   ssl_openssl_lib,
+  ssl_openssl,
   {$ENDIF}
   Classes,
   SysUtils,
