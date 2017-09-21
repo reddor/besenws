@@ -96,6 +96,10 @@ type
     { remove() - removes this listener }
     procedure remove(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
 
+    procedure enableSSL(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+
+    procedure setCiphers(const ThisArgument:TBESENValue;Arguments:PPBESENValues;CountArguments:integer;var ResultValue:TBESENValue);
+
     property ip: TBESENString read GetIP;
     property port: TBESENString read GetPort;
   end;
@@ -194,6 +198,27 @@ begin
       ResultValue:=BESENBooleanValue(True);
     end;
   end;
+end;
+
+procedure TBESENWebserverListener.enableSSL(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+begin
+  if CountArguments<3 then
+   Exit;
+  if Assigned(FListener) then
+    if not FListener.SSL then
+    FListener.EnableSSL(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[1]^)), BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[2]^)));
+end;
+
+procedure TBESENWebserverListener.setCiphers(const ThisArgument: TBESENValue;
+  Arguments: PPBESENValues; CountArguments: integer;
+  var ResultValue: TBESENValue);
+begin
+  if CountArguments<1 then
+   Exit;
+  if Assigned(FListener) and(FListener.SSL) then
+    FListener.SetSSLCiphers(BESENUTF16ToUTF8(TBESEN(Instance).ToStr(Arguments^[0]^)));
 end;
 
 { TBESENWebserverSite }

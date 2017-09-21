@@ -140,6 +140,7 @@ type
     constructor Create(Parent: TWebserver; IP, Port: ansistring);
     destructor Destroy; override;
     procedure EnableSSL(PrivateKeyFile, CertificateFile, CertPassword: ansistring);
+    function SetSSLCiphers(const Ciphers: ansistring): Boolean;
     property IP: ansistring read FIP;
     property Port: ansistring read FPort;
     property Parent: TWebserver read FParent;
@@ -395,6 +396,14 @@ begin
     Exit;
 
   FSSL:=FSSLContext.Enable(PrivateKeyFile, CertificateFile, CertPassword);
+end;
+
+function TWebserverListener.SetSSLCiphers(const Ciphers: ansistring): Boolean;
+begin
+  if FSSL and (FSSLContext is TOpenSSLContext) then
+    result:=TOpenSSLContext(FSSLContext).SetCipherList(Ciphers)
+  else
+    result:=False;
 end;
 
 { THTTPConnection }
