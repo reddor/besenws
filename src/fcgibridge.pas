@@ -45,8 +45,6 @@ type
     property Broken: Boolean read FBroken;
   end;
 
-  { TSocketFastCGIBridge }
-
   { TFastCGIBridgeSocket }
 
   TFastCGIBridgeSocket = class(TAbstractFastCGIBridge)
@@ -259,7 +257,6 @@ procedure TAbstractFastCGIBridge.SendRequest(ReqType: Byte; Id: Word; Data: Poin
   Length: Word);
 var
   Rec: FCGI_Header;
-  Foo: ansistring;
 begin
   FillChar(Rec, SizeOf(Rec), #0);
   Rec.reqtype:=ReqType;
