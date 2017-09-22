@@ -271,6 +271,9 @@ begin
       dolog(llNotice, 'Running in Debug Mode');
 
     IncreaseRLimits;
+    {$IFDEF OPENSSL_SUPPORT}
+    dolog(llNotice, 'Using '+SSLeayversion(0));
+    {$ENDIF}
 
     WritePid(fpGetPid);
 
