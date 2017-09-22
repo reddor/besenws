@@ -211,7 +211,7 @@ begin
       i:=SslAccept(ssl);
     if i<=0 then
     begin
-      case CheckOpenSSLError(ssl, i) of
+      case CheckOpenSSLError(ssl, i, LogPrefix) of
         SSL_ERROR_WANT_WRITE: ;
         SSL_ERROR_WANT_READ: ;
         else begin
