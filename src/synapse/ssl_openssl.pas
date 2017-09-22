@@ -161,6 +161,8 @@ type
     function GetVerifyCert: integer; override;
   end;
 
+procedure InitializeOpenSSL(LoadLocal: Boolean);
+
 implementation
 
 {==============================================================================}
@@ -178,6 +180,16 @@ begin
   Result := Length(Password);
   StrLCopy(buf, PAnsiChar(Password + #0), Result + 1);
 end;
+
+procedure InitializeOpenSSL(LoadLocal: Boolean);
+begin
+  if InitSSLInterface(LoadLocal) then
+  begin
+    SSLImplementation := TSSLOpenSSL;
+    OPENSSLaddallalgorithms;
+  end;
+end;
+
 {$ENDIF}
 
 {==============================================================================}
@@ -918,9 +930,5 @@ begin
 end;
 
 {==============================================================================}
-
-initialization
-  if InitSSLInterface then
-    SSLImplementation := TSSLOpenSSL;
 
 end.

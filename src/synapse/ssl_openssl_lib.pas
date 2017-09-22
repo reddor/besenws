@@ -817,7 +817,7 @@ var
 {$ENDIF}
 
 function IsSSLloaded: Boolean;
-function InitSSLInterface: Boolean;
+function InitSSLInterface(LoadLocal: Boolean = False): Boolean;
 function DestroySSLInterface: Boolean;
 
 var
@@ -1842,7 +1842,7 @@ begin
 {$ENDIF}
 end;
 
-function InitSSLInterface: Boolean;
+function InitSSLInterface(LoadLocal: Boolean): Boolean;
 var
   s: string;
   x: integer;
@@ -1862,8 +1862,16 @@ begin
       SSLLibHandle := 1;
       SSLUtilHandle := 1;
 {$ELSE}
-      SSLUtilHandle := LoadLib(DLLUtilName);
-      SSLLibHandle := LoadLib(DLLSSLName);
+      if LoadLocal then
+      begin
+        SSLUtilHandle := LoadLib(ExtractFilePath(Paramstr(0)) + DLLUtilName);
+        SSLLibHandle := LoadLib(ExtractFilePath(Paramstr(0)) + DLLSSLName);
+      end;
+
+      if SSLUtilHandle = 0 then
+        SSLUtilHandle := LoadLib(DLLUtilName);
+      if SSLLibHandle = 0 then
+        SSLLibHandle := LoadLib(DLLSSLName);
   {$IFDEF MSWINDOWS}
       if (SSLLibHandle = 0) then
         SSLLibHandle := LoadLib(DLLSSLName2);

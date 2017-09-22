@@ -57,6 +57,7 @@ var
   shutdown: Boolean;
   testmode: Boolean;
   hasforked: Boolean;
+  locallibssl: Boolean;
   oa,na : PSigActionRec;
   ConfigurationPath: ansistring;
 
@@ -155,6 +156,7 @@ var
 begin
   GotPath:=False;
   testmode:=False;
+  locallibssl:=False;
 
   if ParamCount = 0 then
   begin
@@ -168,6 +170,9 @@ begin
     begin
       if s = '-debug' then
         isdebug:=true
+      else
+      if s = '-locallibssl' then
+        locallibssl:=true
       else
       if s = '-test' then
       begin
@@ -231,6 +236,11 @@ begin
   ConfigurationPath:=ExtractFilePath(ParamStr(0));
   CheckParameters;
 
+  {$IFDEF OPENSSL_SUPPORT}
+  InitializeOpenSSL(locallibssl);
+  {$ENDIF}
+
+
   if not FileExists(ConfigurationPath + 'settings.js') then
   begin
     Writeln(ConfigurationPath+'settings.js could not be found!');
@@ -272,7 +282,10 @@ begin
 
     IncreaseRLimits;
     {$IFDEF OPENSSL_SUPPORT}
-    dolog(llNotice, 'Using '+SSLeayversion(0));
+    if IsSSLloaded then
+      dolog(llNotice, 'Using '+SSLeayversion(0))
+    else
+      dolog(llWarning, 'Could not load OpenSSL');
     {$ENDIF}
 
     WritePid(fpGetPid);

@@ -226,8 +226,5 @@ begin
     dolog(llError, LogPrefix + 'SSL_new() failed!');
 end;
 
-initialization
-  InitSSLInterface;
-  OPENSSLaddallalgorithms;
 end.
 
