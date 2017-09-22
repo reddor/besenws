@@ -497,7 +497,7 @@ begin
 
   if https then
   begin
-    FSocket.SSL.SSLType:=LT_TLSv1_2;
+    // FSocket.SSL.SSLType:=;
     FSocket.SSLDoConnect;
     if FSocket.LastError<>0 then
     begin
